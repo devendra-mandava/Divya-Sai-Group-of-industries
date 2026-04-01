@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import html2pdf from "html2pdf.js";
 
 const LOGO_GROUP = "/DSGILogo.jpg";
 const LOGO_ENTERPRISES = "/EnterprisesLogo.jpg";
@@ -172,7 +173,6 @@ export default function App() {
   const [selectedPredefined, setSelectedPredefined] = useState([]);
   const [emptyRowCount, setEmptyRowCount] = useState(0);
 
-  const printRef = useRef();
   const pageRef = useRef();
 
   const company = companyKey ? COMPANIES[companyKey] : null;
@@ -297,53 +297,39 @@ export default function App() {
     @page { size:A4; margin:10mm; }
   `;
 
-  const handlePrint = useCallback(() => {
-    const content = printRef.current;
+  const handleDownloadPdf = useCallback(async () => {
+    const content = pageRef.current;
     if (!content) return;
-    const win = window.open("","_blank","width=900,height=700");
-    win.document.write(`<!DOCTYPE html><html><head><title>${docType}</title><style>
-      * { margin:0; padding:0; box-sizing:border-box; }
-      html, body { background:#fff; }
-      body { padding:0; }
-      .print-root {
-        width: 190mm;
-        margin: 0 auto;
-        padding: 0;
-        transform-origin: top center;
-      }
-      ${invoiceCSS}
-    </style></head><body><div class="print-root">${content.innerHTML}</div><script>
-      (function() {
-        const pageWidth = 190 * MM_TO_PX;
-        const pageHeight = ${PRINT_CONTENT_HEIGHT_PX};
-        const root = document.querySelector('.print-root');
-        if (!root) return;
 
-        function fitToSinglePage() {
-          root.style.transform = 'scale(1)';
-          root.style.width = '190mm';
-          root.style.margin = '0 auto';
+    const safePartyName = (party.name || "customer")
+      .trim()
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase();
+    const fileLabel = (docType || "document").replace(/\s+/g, "-").toLowerCase();
+    const filename = `${fileLabel}-${safePartyName || "customer"}-${docDate || "download"}.pdf`;
 
-          const scaleX = pageWidth / root.scrollWidth;
-          const scaleY = pageHeight / root.scrollHeight;
-          const scale = Math.min(1, scaleX, scaleY);
+    const options = {
+      margin: 10,
+      filename,
+      image: { type: "jpeg", quality: 0.98 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+      },
+      jsPDF: {
+        unit: "mm",
+        format: "a4",
+        orientation: "portrait",
+      },
+      pagebreak: {
+        mode: ["css", "legacy"],
+      },
+    };
 
-          root.style.transform = 'scale(' + scale + ')';
-          root.style.margin = '0 auto';
-          root.style.height = root.scrollHeight * scale + 'px';
-        }
-
-        window.addEventListener('load', function() {
-          fitToSinglePage();
-          setTimeout(function() {
-            fitToSinglePage();
-            window.print();
-          }, 300);
-        });
-      })();
-    <\/script></body></html>`);
-    win.document.close();
-  }, [docType]);
+    await html2pdf().set(options).from(content).save();
+  }, [docDate, docType, party.name]);
 
   if (view === "landing") return <Landing onSelect={handleSelect} />;
 
@@ -531,10 +517,10 @@ export default function App() {
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
         <h3 style={{ fontSize:18, fontWeight:700, color:"#1a1a2e" }}>Document Preview</h3>
-        <button onClick={handlePrint} style={btnPrimary}>Download / Print PDF</button>
+        <button onClick={handleDownloadPdf} style={btnPrimary}>Download PDF</button>
       </div>
       <div style={{ border:"1px solid #ccc", borderRadius:8, overflow:"auto", background:"#fff" }}>
-        <div ref={printRef}>
+        <div>
           <style dangerouslySetInnerHTML={{ __html: invoiceCSS }} />
           <div ref={pageRef} className="inv-doc inv-page" style={{ padding:20, margin:"0 auto" }}>
           {/* Doc Type Bar */}
@@ -737,7 +723,7 @@ export default function App() {
           <button onClick={() => setStep(Math.max(0, step-1))} disabled={step===0} style={{...btnSecondary, opacity:step===0?0.4:1}}>← Back</button>
           {step < 6
             ? <button onClick={() => setStep(step+1)} style={btnPrimary}>Next →</button>
-            : <button onClick={handlePrint} style={btnPrimary}>Download PDF</button>
+            : <button onClick={handleDownloadPdf} style={btnPrimary}>Download PDF</button>
           }
         </div>
       </div>
