@@ -163,8 +163,8 @@ export default function App() {
   const [items, setItems] = useState([{ catalogId:"ip60", description:"Ex-Factory", qty:"", unit:"SQF", rate:"" }]);
   // Additional
   const [extras, setExtras] = useState({ transport:false, transportMode:"direct", transportAmt:"", transportTons:"", transportRate:"",
-    laying:false, layingSqft:"", layingRate:"",
-    loading:false, loadingRate:"" });
+    laying:false, layingMode:"sqft", layingSqft:"", layingRate:"", layingTotal:"",
+    unloading:false, unloadingMode:"sqft", unloadingSqft:"", unloadingRate:"", unloadingTotal:"" });
   // Tax
   const [gstPercent, setGstPercent] = useState(18);
   const [applyGst, setApplyGst] = useState(true);
@@ -211,9 +211,15 @@ export default function App() {
     else transportAmt = (parseFloat(extras.transportTons)||0) * (parseFloat(extras.transportRate)||0);
   }
   let layingAmt = 0;
-  if (extras.laying) layingAmt = (parseFloat(extras.layingSqft)||0) * (parseFloat(extras.layingRate)||0);
-  let loadingAmt = 0;
-  if (extras.loading) loadingAmt = totalQty * (parseFloat(extras.loadingRate)||0);
+  if (extras.laying) {
+    if (extras.layingMode === "direct") layingAmt = parseFloat(extras.layingTotal) || 0;
+    else layingAmt = (parseFloat(extras.layingSqft)||0) * (parseFloat(extras.layingRate)||0);
+  }
+  let unloadingAmt = 0;
+  if (extras.unloading) {
+    if (extras.unloadingMode === "direct") unloadingAmt = parseFloat(extras.unloadingTotal) || 0;
+    else unloadingAmt = (parseFloat(extras.unloadingSqft)||0) * (parseFloat(extras.unloadingRate)||0);
+  }
 
   const taxableValue = totalTaxableItems;
   const gstRate = applyGst ? (parseFloat(gstPercent)||0) : 0;
@@ -222,7 +228,7 @@ export default function App() {
   const cgstAmt = Math.round(taxableValue * cgstRate / 100);
   const sgstAmt = Math.round(taxableValue * sgstRate / 100);
   const totalTax = cgstAmt + sgstAmt;
-  const grandTotal = taxableValue + totalTax + transportAmt + layingAmt + loadingAmt;
+  const grandTotal = taxableValue + totalTax + transportAmt + layingAmt + unloadingAmt;
   const allNotes = [
     ...selectedPredefined.map(i => PREDEFINED_NOTES[i]),
     ...(notes ? [notes] : [])
@@ -253,7 +259,7 @@ export default function App() {
     calcItems.length,
     transportAmt,
     layingAmt,
-    loadingAmt,
+    unloadingAmt,
     gstRate,
     docType,
     party.name,
@@ -270,8 +276,8 @@ export default function App() {
   const invoiceCSS = `
     .inv-doc { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; color: #1a1a1a; }
     .inv-page { width: 190mm; margin: 0 auto; background: #fff; }
-    .inv-doc table { width:100%; border-collapse:collapse; }
-    .inv-doc td, .inv-doc th { border:1px solid #999; padding:5px 8px; text-align:left; vertical-align:top; }
+    .inv-doc table { width:100%; border-collapse:collapse; table-layout:auto; }
+    .inv-doc td, .inv-doc th { border:1px solid #999; padding:4px 6px; text-align:left; vertical-align:top; word-wrap:break-word; overflow-wrap:break-word; }
     .inv-doc th { background:#f8f0f2; font-weight:600; color:#5a1a2a; }
     .inv-doc .no-border td, .inv-doc .no-border th { border:none; padding:2px 4px; }
     .inv-doc .text-right { text-align:right; }
@@ -285,7 +291,7 @@ export default function App() {
     .inv-doc .doc-type-bar { background:#7B1A2C; color:#fff; padding:6px 12px; font-weight:700; font-size:12px; }
     .inv-doc .doc-type-bar .original-badge { border:1px solid #fff; padding:2px 10px; font-size:10px; font-weight:600; color:#fff; float:right; margin-top:1px; }
     .inv-doc .total-row td { background:#f8f0f2; font-weight:700; }
-    .inv-doc .company-name { font-weight:700; font-size:14px; color:#7B1A2C; margin-bottom:2px; }
+    .inv-doc .company-name { font-weight:700; font-size:13px; color:#7B1A2C; margin-bottom:2px; word-wrap:break-word; }
     .inv-doc .section-label { font-weight:700; font-size:10px; color:#7B1A2C; margin-bottom:4px; }
     .inv-doc .bill-header { background:#7B1A2C; color:#fff; font-weight:700; font-size:10px; padding:3px 8px; }
     .inv-doc .amt-words { border:1px solid #999; padding:8px; background:#fdf8f9; }
@@ -435,24 +441,51 @@ export default function App() {
             {/* Laying */}
             <div style={{ background:"#f9fafb", borderRadius:12, padding:16, marginBottom:12, border:"1px solid #e5e7eb" }}>
               <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
-                <input type="checkbox" checked={extras.laying} onChange={e => updateExtras("laying",e.target.checked)} id="ly" />
+                <input type="checkbox" checked={extras.laying} onChange={e => {
+                  updateExtras("laying",e.target.checked);
+                  if (e.target.checked && !extras.layingSqft) updateExtras("layingSqft", String(totalQty));
+                }} id="ly" />
                 <label htmlFor="ly" style={{ fontWeight:600 }}>Laying Charges</label>
               </div>
               {extras.laying && (
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-                  <FormField label="Total Sqft"><input type="number" style={inputStyle} value={extras.layingSqft} onChange={e => updateExtras("layingSqft",e.target.value)} /></FormField>
-                  <FormField label="Rate per Sqft (₹)"><input type="number" style={inputStyle} value={extras.layingRate} onChange={e => updateExtras("layingRate",e.target.value)} /></FormField>
+                <div>
+                  <div style={{ display:"flex", gap:16, marginBottom:12 }}>
+                    <label style={{ fontSize:13 }}><input type="radio" checked={extras.layingMode==="sqft"} onChange={() => updateExtras("layingMode","sqft")} /> Sqft × Rate</label>
+                    <label style={{ fontSize:13 }}><input type="radio" checked={extras.layingMode==="direct"} onChange={() => updateExtras("layingMode","direct")} /> Enter Total</label>
+                  </div>
+                  {extras.layingMode === "direct"
+                    ? <FormField label="Total Amount (₹)"><input type="number" style={inputStyle} value={extras.layingTotal} onChange={e => updateExtras("layingTotal",e.target.value)} /></FormField>
+                    : <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                        <FormField label="Total Sqft"><input type="number" style={inputStyle} value={extras.layingSqft} onChange={e => updateExtras("layingSqft",e.target.value)} /></FormField>
+                        <FormField label="Rate per Sqft (₹)"><input type="number" style={inputStyle} value={extras.layingRate} onChange={e => updateExtras("layingRate",e.target.value)} /></FormField>
+                      </div>
+                  }
                 </div>
               )}
             </div>
-            {/* Loading */}
+            {/* Unloading */}
             <div style={{ background:"#f9fafb", borderRadius:12, padding:16, marginBottom:12, border:"1px solid #e5e7eb" }}>
               <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
-                <input type="checkbox" checked={extras.loading} onChange={e => updateExtras("loading",e.target.checked)} id="ld" />
-                <label htmlFor="ld" style={{ fontWeight:600 }}>Loading & Unloading</label>
+                <input type="checkbox" checked={extras.unloading} onChange={e => {
+                  updateExtras("unloading",e.target.checked);
+                  if (e.target.checked && !extras.unloadingSqft) updateExtras("unloadingSqft", String(totalQty));
+                }} id="ul" />
+                <label htmlFor="ul" style={{ fontWeight:600 }}>Unloading</label>
               </div>
-              {extras.loading && (
-                <FormField label="Rate per unit (₹)"><input type="number" style={inputStyle} value={extras.loadingRate} onChange={e => updateExtras("loadingRate",e.target.value)} /></FormField>
+              {extras.unloading && (
+                <div>
+                  <div style={{ display:"flex", gap:16, marginBottom:12 }}>
+                    <label style={{ fontSize:13 }}><input type="radio" checked={extras.unloadingMode==="sqft"} onChange={() => updateExtras("unloadingMode","sqft")} /> Sqft × Rate</label>
+                    <label style={{ fontSize:13 }}><input type="radio" checked={extras.unloadingMode==="direct"} onChange={() => updateExtras("unloadingMode","direct")} /> Enter Total</label>
+                  </div>
+                  {extras.unloadingMode === "direct"
+                    ? <FormField label="Total Amount (₹)"><input type="number" style={inputStyle} value={extras.unloadingTotal} onChange={e => updateExtras("unloadingTotal",e.target.value)} /></FormField>
+                    : <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                        <FormField label="Total Sqft"><input type="number" style={inputStyle} value={extras.unloadingSqft} onChange={e => updateExtras("unloadingSqft",e.target.value)} /></FormField>
+                        <FormField label="Rate per Sqft (₹)"><input type="number" style={inputStyle} value={extras.unloadingRate} onChange={e => updateExtras("unloadingRate",e.target.value)} /></FormField>
+                      </div>
+                  }
+                </div>
               )}
             </div>
           </div>
@@ -480,7 +513,7 @@ export default function App() {
               </>}
               {transportAmt > 0 && <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}><span>Transportation:</span><span>₹ {fmt(transportAmt)}</span></div>}
               {layingAmt > 0 && <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}><span>Laying:</span><span>₹ {fmt(layingAmt)}</span></div>}
-              {loadingAmt > 0 && <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}><span>Loading/Unloading:</span><span>₹ {fmt(loadingAmt)}</span></div>}
+              {unloadingAmt > 0 && <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}><span>Unloading:</span><span>₹ {fmt(unloadingAmt)}</span></div>}
               <hr style={{ border:"none", borderTop:"2px solid #c23152", margin:"12px 0" }} />
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:16, fontWeight:700 }}><span>Grand Total:</span><span style={{ color:"#c23152" }}>₹ {fmt(grandTotal)}</span></div>
             </div>
@@ -542,6 +575,7 @@ export default function App() {
                         <table className="no-border" style={{ fontSize:10, marginTop:4, border:"none" }}><tbody>
                           {company.gstin && <tr><td style={{ border:"none", padding:"1px 4px 1px 0", fontWeight:600, width:50 }}>GSTIN:</td><td style={{ border:"none", padding:"1px 4px" }}>{company.gstin}</td><td style={{ border:"none", padding:"1px 4px", fontWeight:600, width:55 }}>Mobile:</td><td style={{ border:"none", padding:"1px 4px" }}>{company.mobile}</td></tr>}
                           {!company.gstin && <tr><td style={{ border:"none", padding:"1px 4px 1px 0", fontWeight:600, width:55 }}>Mobile:</td><td style={{ border:"none", padding:"1px 4px" }}>{company.mobile}</td></tr>}
+                          {company.email && <tr><td style={{ border:"none", padding:"1px 4px 1px 0", fontWeight:600, width:55 }}>Email:</td><td style={{ border:"none", padding:"1px 4px" }} colSpan={3}>{company.email}</td></tr>}
                         </tbody></table>
                       </td>
                     </tr>
@@ -594,7 +628,7 @@ export default function App() {
           {/* Items Table */}
           <table>
             <thead><tr>
-              <th style={{ width:45, textAlign:"center" }}>S.NO.</th><th>ITEMS</th><th style={{ width:55, textAlign:"center" }}>HSN</th><th style={{ width:80 }}>QTY.</th><th style={{ width:55, textAlign:"right" }}>RATE</th><th style={{ width:75, textAlign:"right" }}>TAX</th><th style={{ width:85, textAlign:"right" }}>AMOUNT</th>
+              <th style={{ width:45, textAlign:"center" }}>S.NO.</th><th>ITEMS</th><th style={{ width:55, textAlign:"center" }}>HSN</th><th style={{ width:80 }}>QTY.</th><th style={{ width:55, textAlign:"right" }}>RATE</th>{gstRate > 0 && <th style={{ width:75, textAlign:"right" }}>TAX</th>}<th style={{ width:85, textAlign:"right" }}>AMOUNT</th>
             </tr></thead>
             <tbody>
               {calcItems.map((it,i) => (
@@ -604,34 +638,34 @@ export default function App() {
                   <td className="text-center">{it.hsn}</td>
                   <td>{fmt(it.qty)} {it.unit}</td>
                   <td className="text-right">{fmt(it.rate)}</td>
-                  <td className="amount-cell">{fmt(Math.round(it.taxable * gstRate / 100))}<br/><span style={{fontSize:9}}>({gstRate}%)</span></td>
+                  {gstRate > 0 && <td className="amount-cell">{fmt(Math.round(it.taxable * gstRate / 100))}<br/><span style={{fontSize:9}}>({gstRate}%)</span></td>}
                   <td className="amount-cell">{fmt(it.taxable + Math.round(it.taxable * gstRate / 100))}</td>
                 </tr>
               ))}
               {/* Empty rows to fill page */}
               {Array.from({ length: emptyRowCount }).map((_,i) => (
-                <tr key={`empty-${i}`} className="empty-row"><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr key={`empty-${i}`} className="empty-row"><td></td><td></td><td></td><td></td><td></td>{gstRate > 0 && <td></td>}<td></td></tr>
               ))}
               {/* Extra lines */}
               {extras.transport && transportAmt > 0 && (
-                <tr><td></td><td style={{fontStyle:"italic"}}>{extras.transportMode==="calc" ? `Transportation: ${extras.transportTons} Tons × ${extras.transportRate}/-` : "Transportation"}</td><td>-</td><td>-</td><td className="amount-cell">{fmt(transportAmt)}</td><td className="amount-cell">0<br/><span style={{fontSize:9}}>(0%)</span></td><td className="amount-cell">{fmt(transportAmt)}</td></tr>
+                <tr><td></td><td style={{fontStyle:"italic"}}>{extras.transportMode==="calc" ? `Transportation: ${extras.transportTons} Tons × ${extras.transportRate}/-` : "Transportation"}</td><td>-</td><td>-</td><td className="amount-cell">{fmt(transportAmt)}</td>{gstRate > 0 && <td className="amount-cell">0<br/><span style={{fontSize:9}}>(0%)</span></td>}<td className="amount-cell">{fmt(transportAmt)}</td></tr>
               )}
-              {extras.loading && loadingAmt > 0 && (
-                <tr><td></td><td style={{fontStyle:"italic"}}>Unloading {fmt(totalQty)} × {extras.loadingRate}/-</td><td>-</td><td>-</td><td className="amount-cell">{fmt(loadingAmt)}</td><td className="amount-cell">0<br/><span style={{fontSize:9}}>(0%)</span></td><td className="amount-cell">{fmt(loadingAmt)}</td></tr>
+              {extras.unloading && unloadingAmt > 0 && (
+                <tr><td></td><td style={{fontStyle:"italic"}}>{extras.unloadingMode==="sqft" ? `Unloading: ${extras.unloadingSqft}sqft × ${extras.unloadingRate}/-` : "Unloading"}</td><td>-</td><td>-</td><td className="amount-cell">{fmt(unloadingAmt)}</td>{gstRate > 0 && <td className="amount-cell">0<br/><span style={{fontSize:9}}>(0%)</span></td>}<td className="amount-cell">{fmt(unloadingAmt)}</td></tr>
               )}
               {extras.laying && layingAmt > 0 && (
-                <tr><td></td><td style={{fontStyle:"italic"}}>Laying: {extras.layingSqft}sqft × {extras.layingRate}/-</td><td>-</td><td>-</td><td className="amount-cell">{fmt(layingAmt)}</td><td className="amount-cell">0<br/><span style={{fontSize:9}}>(0%)</span></td><td className="amount-cell">{fmt(layingAmt)}</td></tr>
+                <tr><td></td><td style={{fontStyle:"italic"}}>{extras.layingMode==="sqft" ? `Laying: ${extras.layingSqft}sqft × ${extras.layingRate}/-` : "Laying"}</td><td>-</td><td>-</td><td className="amount-cell">{fmt(layingAmt)}</td>{gstRate > 0 && <td className="amount-cell">0<br/><span style={{fontSize:9}}>(0%)</span></td>}<td className="amount-cell">{fmt(layingAmt)}</td></tr>
               )}
               {/* Total Row */}
               <tr className="total-row">
                 <td colSpan={3} className="text-right">TOTAL</td>
                 <td>{fmt(totalQty)}</td>
                 <td></td>
-                <td className="amount-cell">₹ {fmt(totalTax)}</td>
+                {gstRate > 0 && <td className="amount-cell">₹ {fmt(totalTax)}</td>}
                 <td className="amount-cell">₹ {fmt(grandTotal)}</td>
               </tr>
               {docType !== "Quotation" && (
-                <tr><td colSpan={6} className="text-right" style={{ fontWeight:600 }}>RECEIVED AMOUNT</td><td className="amount-cell">₹ 0</td></tr>
+                <tr><td colSpan={gstRate > 0 ? 6 : 5} className="text-right" style={{ fontWeight:600 }}>RECEIVED AMOUNT</td><td className="amount-cell">₹ 0</td></tr>
               )}
             </tbody>
           </table>
