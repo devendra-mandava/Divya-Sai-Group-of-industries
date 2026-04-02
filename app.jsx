@@ -48,6 +48,13 @@ const ITEMS_CATALOG = [
   { id: "ks", name: "Kerb Stones", hsn: "", type: "other" },
 ];
 
+const INDIAN_STATES = [
+  "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh","Goa","Gujarat","Haryana","Himachal Pradesh","Jharkhand",
+  "Karnataka","Kerala","Madhya Pradesh","Maharashtra","Manipur","Meghalaya","Mizoram","Nagaland","Odisha","Punjab",
+  "Rajasthan","Sikkim","Tamil Nadu","Telangana","Tripura","Uttar Pradesh","Uttarakhand","West Bengal",
+  "Andaman and Nicobar Islands","Chandigarh","Dadra and Nagar Haveli and Daman and Diu","Delhi","Jammu and Kashmir","Ladakh","Lakshadweep","Puducherry"
+];
+
 const PREDEFINED_NOTES = [
   "Sand, vibrator, and civil works are to be arranged by the customer at the work site. Our scope covers only the tile supply and laying work.",
   "Civil works and sand filling are within your scope.",
@@ -91,7 +98,7 @@ const PRINT_CONTENT_HEIGHT_MM = 277;
 const PRINT_CONTENT_HEIGHT_PX = PRINT_CONTENT_HEIGHT_MM * MM_TO_PX;
 const EMPTY_ROW_HEIGHT_PX = 24;
 
-function Landing({ onSelect }) {
+function Landing({ onSelect, onHistory }) {
   return (
     <div style={{ minHeight:"100vh", background:"linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%)", display:"flex", alignItems:"center", justifyContent:"center", padding:20, fontFamily:"'Segoe UI',system-ui,sans-serif" }}>
       <div style={{ maxWidth:800, width:"100%", textAlign:"center" }}>
@@ -111,6 +118,10 @@ function Landing({ onSelect }) {
                     onMouseOut={e => e.target.style.transform="scale(1)"}
                   >{dt}</button>
                 ))}
+                <button onClick={() => onHistory(key)} style={{ padding:"12px 20px", border:"1px solid rgba(255,255,255,0.3)", borderRadius:10, background:"transparent", color:"#e0e0e0", fontSize:14, fontWeight:500, cursor:"pointer", marginTop:4, transition:"transform 0.15s" }}
+                  onMouseOver={e => { e.target.style.transform="scale(1.03)"; e.target.style.background="rgba(255,255,255,0.1)"; }}
+                  onMouseOut={e => { e.target.style.transform="scale(1)"; e.target.style.background="transparent"; }}
+                >History</button>
               </div>
             </div>
           ))}
@@ -153,12 +164,19 @@ export default function App() {
   const [step, setStep] = useState(0);
 
   // Party
-  const [party, setParty] = useState({ name:"", phone:"", address:"", gst:"", shipAddress:"", sameAsBilling:true });
+  const [party, setParty] = useState({ name:"", phone:"", gst:"", street:"", city:"", state:"Andhra Pradesh", pincode:"", shipStreet:"", shipCity:"", shipState:"Andhra Pradesh", shipPincode:"", sameAsBilling:true });
+  const [partiesList, setPartiesList] = useState([]);
+  const [showPartySuggestions, setShowPartySuggestions] = useState(false);
+  // History
+  const [historyDocs, setHistoryDocs] = useState([]);
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyTab, setHistoryTab] = useState("Invoice");
   // Basic
   const [docDate, setDocDate] = useState(new Date().toISOString().slice(0,10));
   const [dueDate, setDueDate] = useState("");
   const [vehicleNo, setVehicleNo] = useState("");
   const [docNumber, setDocNumber] = useState("");
+  const [partyId, setPartyId] = useState(null);
   // Items
   const [items, setItems] = useState([{ catalogId:"ip60", description:"Ex-Factory", qty:"", unit:"SQF", rate:"" }]);
   // Additional
@@ -177,13 +195,52 @@ export default function App() {
 
   const company = companyKey ? COMPANIES[companyKey] : null;
 
+  // Fetch parties for autocomplete
+  const fetchParties = async (ck) => {
+    try {
+      const res = await fetch(`/api/parties?company=${ck}`);
+      if (res.ok) { const data = await res.json(); setPartiesList(data); }
+    } catch { /* offline fallback */ }
+  };
+
+  // Fetch next doc number from counter
+  const fetchNextNumber = async (ck, dt) => {
+    if (dt === "Dummy Bill") return;
+    try {
+      const res = await fetch(`/api/counter?company=${ck}&doc_type=${dt}`);
+      if (res.ok) { const data = await res.json(); setDocNumber(data.docNumber); }
+    } catch { /* offline fallback */ }
+  };
+
+  // Fetch history documents
+  const fetchHistory = async (ck, search = "") => {
+    try {
+      const q = search ? `&search=${encodeURIComponent(search)}` : "";
+      const res = await fetch(`/api/documents?company=${ck}${q}`);
+      if (res.ok) { const data = await res.json(); setHistoryDocs(data); }
+    } catch { setHistoryDocs([]); }
+  };
+
   const handleSelect = (ck, dt) => {
     setCompanyKey(ck);
     setDocType(dt);
     setGstPercent(COMPANIES[ck].defaultGst);
     setApplyGst(COMPANIES[ck].gstRequired);
+    setParty({ name:"", phone:"", gst:"", street:"", city:"", state:"Andhra Pradesh", pincode:"", shipStreet:"", shipCity:"", shipState:"Andhra Pradesh", shipPincode:"", sameAsBilling:true });
+    setDocNumber("");
+    setPartyId(null);
     setView("form");
     setStep(0);
+    fetchParties(ck);
+    fetchNextNumber(ck, dt);
+  };
+
+  const handleHistory = (ck) => {
+    setCompanyKey(ck);
+    setHistorySearch("");
+    setHistoryTab("Invoice");
+    setView("history");
+    fetchHistory(ck);
   };
 
   const stepLabels = docType === "Invoice"
@@ -233,7 +290,9 @@ export default function App() {
     ...selectedPredefined.map(i => PREDEFINED_NOTES[i]),
     ...(notes ? [notes] : [])
   ].join("\n");
-  const shipAddr = party.sameAsBilling ? party.address : party.shipAddress;
+  const composeAddr = (street, city, state, pincode) => [street, city, state && pincode ? `${state} - ${pincode}` : state || pincode].filter(Boolean).join(", ");
+  const billingAddr = composeAddr(party.street, party.city, party.state, party.pincode);
+  const shipAddr = party.sameAsBilling ? billingAddr : composeAddr(party.shipStreet, party.shipCity, party.shipState, party.shipPincode);
 
   useEffect(() => {
     const page = pageRef.current;
@@ -263,7 +322,7 @@ export default function App() {
     gstRate,
     docType,
     party.name,
-    party.address,
+    billingAddr,
     party.phone,
     shipAddr,
     allNotes,
@@ -310,10 +369,10 @@ export default function App() {
     const safePartyName = (party.name || "customer")
       .trim()
       .replace(/[^a-z0-9]+/gi, "-")
-      .replace(/^-+|-+$/g, "")
-      .toLowerCase();
-    const fileLabel = (docType || "document").replace(/\s+/g, "-").toLowerCase();
-    const filename = `${fileLabel}-${safePartyName || "customer"}-${docDate || "download"}.pdf`;
+      .replace(/^-+|-+$/g, "");
+    const safeDocNum = (docNumber || "draft").replace(/[\/\\]/g, "-");
+    const docLabel2 = docType === "Dummy Bill" ? "Invoice" : docType;
+    const filename = `${safeDocNum}_${safePartyName}_${docLabel2}.pdf`;
 
     const options = {
       margin: 10,
@@ -334,10 +393,27 @@ export default function App() {
       },
     };
 
-    await html2pdf().set(options).from(content).save();
-  }, [docDate, docType, party.name]);
+    // Save to DB (fire-and-forget, only for Invoice/Quotation)
+    if (docType !== "Dummy Bill" && companyKey && docNumber) {
+      try {
+        // Save party first
+        const partyRes = await fetch("/api/parties", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ company: companyKey, name: party.name, phone: party.phone, gst: party.gst, street: party.street, city: party.city, state: party.state, pincode: party.pincode, ship_street: party.shipStreet, ship_city: party.shipCity, ship_state: party.shipState, ship_pincode: party.shipPincode })
+        });
+        const partyData = partyRes.ok ? await partyRes.json() : {};
+        // Save document
+        fetch("/api/documents", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ company: companyKey, doc_type: docType, doc_number: docNumber, party_id: partyData.id || partyId, party_name: party.name, doc_date: docDate, due_date: dueDate || null, grand_total: grandTotal, vehicle_no: vehicleNo, items_json: calcItems, extras_json: extras, tax_json: { gstPercent, applyGst, cgstAmt, sgstAmt, totalTax }, notes: allNotes })
+        }).catch(() => {});
+      } catch { /* offline */ }
+    }
 
-  if (view === "landing") return <Landing onSelect={handleSelect} />;
+    await html2pdf().set(options).from(content).save();
+  }, [docDate, docType, party, docNumber, companyKey, partyId, dueDate, grandTotal, vehicleNo, calcItems, extras, gstPercent, applyGst, cgstAmt, sgstAmt, totalTax, allNotes]);
+
+  if (view === "landing") return <Landing onSelect={handleSelect} onHistory={handleHistory} />;
 
   const docLabel = docType === "Dummy Bill" ? "Invoice" : docType;
   const dateLabel = docType === "Quotation" ? "Quotation Date" : "Invoice Date";
@@ -350,29 +426,74 @@ export default function App() {
   // Form Steps
   const renderStep = () => {
     switch(step) {
-      case 0: // Party
+      case 0: { // Party
+        const filtered = partiesList.filter(p => p.name.toLowerCase().includes((party.name||"").toLowerCase())).slice(0,8);
+        const selectParty = (p) => {
+          setParty({ name:p.name, phone:p.phone||"", gst:p.gst||"", street:p.street||"", city:p.city||"", state:p.state||"Andhra Pradesh", pincode:p.pincode||"", shipStreet:p.ship_street||"", shipCity:p.ship_city||"", shipState:p.ship_state||"Andhra Pradesh", shipPincode:p.ship_pincode||"", sameAsBilling:true });
+          setPartyId(p.id);
+          setShowPartySuggestions(false);
+        };
         return (
           <div>
             <h3 style={{ fontSize:18, fontWeight:700, marginBottom:16, color:"#1a1a2e" }}>Customer Details</h3>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-              <FormField label="Name" required><input style={inputStyle} value={party.name} onChange={e => updateParty("name",e.target.value)} placeholder="Customer name" /></FormField>
+              <FormField label="Name" required>
+                <div style={{ position:"relative" }}>
+                  <input style={inputStyle} value={party.name} onChange={e => { updateParty("name",e.target.value); setShowPartySuggestions(true); setPartyId(null); }} onFocus={() => setShowPartySuggestions(true)} onBlur={() => setTimeout(() => setShowPartySuggestions(false), 200)} placeholder="Customer name" />
+                  {showPartySuggestions && party.name && filtered.length > 0 && (
+                    <div style={{ position:"absolute", top:"100%", left:0, right:0, background:"#fff", border:"1px solid #d1d5db", borderRadius:8, maxHeight:200, overflowY:"auto", zIndex:10, boxShadow:"0 4px 12px rgba(0,0,0,0.1)" }}>
+                      {filtered.map(p => (
+                        <div key={p.id} onMouseDown={() => selectParty(p)} style={{ padding:"8px 12px", cursor:"pointer", fontSize:13, borderBottom:"1px solid #f3f4f6" }}
+                          onMouseOver={e => e.target.style.background="#f3f4f6"} onMouseOut={e => e.target.style.background="#fff"}>
+                          <strong>{p.name}</strong>{p.city ? <span style={{color:"#888"}}> — {p.city}</span> : ""}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </FormField>
               <FormField label="Phone"><input style={inputStyle} value={party.phone} onChange={e => updateParty("phone",e.target.value)} placeholder="Phone number" /></FormField>
             </div>
-            <FormField label="Billing Address" required><textarea style={{...inputStyle, minHeight:60}} value={party.address} onChange={e => updateParty("address",e.target.value)} placeholder="Full address" /></FormField>
+            <div style={{ fontSize:13, fontWeight:600, color:"#374151", marginBottom:8, marginTop:4 }}>Billing Address</div>
+            <FormField label="Street / Area" required><input style={inputStyle} value={party.street} onChange={e => updateParty("street",e.target.value)} placeholder="Street, area, landmark" /></FormField>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+              <FormField label="City" required><input style={inputStyle} value={party.city} onChange={e => updateParty("city",e.target.value)} placeholder="City" /></FormField>
+              <FormField label="State" required>
+                <select style={inputStyle} value={party.state} onChange={e => updateParty("state",e.target.value)}>
+                  {INDIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </FormField>
+              <FormField label="Pincode"><input style={inputStyle} value={party.pincode} onChange={e => updateParty("pincode",e.target.value)} placeholder="500001" maxLength={6} /></FormField>
+            </div>
             <FormField label="GST (Optional)"><input style={inputStyle} value={party.gst} onChange={e => updateParty("gst",e.target.value)} placeholder="GSTIN" /></FormField>
             <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
               <input type="checkbox" checked={party.sameAsBilling} onChange={e => updateParty("sameAsBilling",e.target.checked)} id="sab" />
               <label htmlFor="sab" style={{ fontSize:13, color:"#555" }}>Shipping address same as billing</label>
             </div>
-            {!party.sameAsBilling && <FormField label="Shipping Address"><textarea style={{...inputStyle,minHeight:60}} value={party.shipAddress} onChange={e => updateParty("shipAddress",e.target.value)} /></FormField>}
+            {!party.sameAsBilling && (
+              <div>
+                <div style={{ fontSize:13, fontWeight:600, color:"#374151", marginBottom:8 }}>Shipping Address</div>
+                <FormField label="Street / Area"><input style={inputStyle} value={party.shipStreet} onChange={e => updateParty("shipStreet",e.target.value)} placeholder="Street, area, landmark" /></FormField>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+                  <FormField label="City"><input style={inputStyle} value={party.shipCity} onChange={e => updateParty("shipCity",e.target.value)} placeholder="City" /></FormField>
+                  <FormField label="State">
+                    <select style={inputStyle} value={party.shipState} onChange={e => updateParty("shipState",e.target.value)}>
+                      {INDIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </FormField>
+                  <FormField label="Pincode"><input style={inputStyle} value={party.shipPincode} onChange={e => updateParty("shipPincode",e.target.value)} placeholder="500001" maxLength={6} /></FormField>
+                </div>
+              </div>
+            )}
           </div>
         );
+      }
       case 1: // Basic Details
         return (
           <div>
             <h3 style={{ fontSize:18, fontWeight:700, marginBottom:16, color:"#1a1a2e" }}>Document Details</h3>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-              <FormField label={numLabel}><input style={inputStyle} value={docNumber} onChange={e => setDocNumber(e.target.value)} placeholder="e.g. FY25-55" /></FormField>
+              <FormField label={numLabel} required={docType !== "Dummy Bill"}><input style={{...inputStyle, ...(docType !== "Dummy Bill" && !docNumber ? {borderColor:"#ef4444"} : {})}} value={docNumber} onChange={e => setDocNumber(e.target.value)} placeholder={docType === "Quotation" ? "e.g. 1" : "e.g. FY27-01"} /></FormField>
               <FormField label={dateLabel} required><input type="date" style={inputStyle} value={docDate} onChange={e => setDocDate(e.target.value)} /></FormField>
               <FormField label={dueDateLabel}><input type="date" style={inputStyle} value={dueDate} onChange={e => setDueDate(e.target.value)} /></FormField>
               {docType === "Invoice" && <FormField label="Vehicle Number"><input style={inputStyle} value={vehicleNo} onChange={e => setVehicleNo(e.target.value)} placeholder="AP37TB8618" /></FormField>}
@@ -614,7 +735,7 @@ export default function App() {
               <tr>
                 <td style={{ verticalAlign:"top" }}>
                   <div style={{ fontWeight:700, fontSize:12 }}>{party.name}</div>
-                  <div style={{ fontSize:10, lineHeight:"1.5" }}>Address: {party.address}</div>
+                  <div style={{ fontSize:10, lineHeight:"1.5" }}>Address: {billingAddr}</div>
                   <div style={{ fontSize:10 }}>Place of Supply: Andhra Pradesh</div>
                   {party.phone && <div style={{ fontSize:10 }}>Mobile: <strong>{party.phone}</strong></div>}
                 </td>
@@ -735,6 +856,70 @@ export default function App() {
     </div>
   );
 
+  // History View
+  if (view === "history" && company) {
+    const invoices = historyDocs.filter(d => d.doc_type === "Invoice");
+    const quotations = historyDocs.filter(d => d.doc_type === "Quotation");
+    const listToShow = historyTab === "Invoice" ? invoices : quotations;
+    return (
+      <div style={{ minHeight:"100vh", background:"#f3f4f6", fontFamily:"'Segoe UI',system-ui,sans-serif" }}>
+        <div style={{ background:"#1a1a2e", color:"#fff", padding:"12px 24px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <button onClick={() => setView("landing")} style={{ background:"none", border:"none", color:"#e94560", cursor:"pointer", fontSize:18, fontWeight:700 }}>←</button>
+            <img src={company.logo} alt="" style={{ width:32, height:32, borderRadius:6, background:"#fff" }} />
+            <span style={{ fontWeight:600, fontSize:14 }}>{company.name}</span>
+          </div>
+          <span style={{ color:"#e0e0e0", fontSize:13 }}>History</span>
+        </div>
+        <div style={{ maxWidth:900, margin:"0 auto", padding:"24px 16px" }}>
+          {/* Search */}
+          <div style={{ marginBottom:16 }}>
+            <input style={{...inputStyle, maxWidth:400}} placeholder="Search by party name..." value={historySearch} onChange={e => { setHistorySearch(e.target.value); fetchHistory(companyKey, e.target.value); }} />
+          </div>
+          {/* Tabs */}
+          <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+            {["Invoice","Quotation"].map(tab => (
+              <button key={tab} onClick={() => setHistoryTab(tab)} style={{ padding:"8px 20px", border:"none", borderRadius:8, background: historyTab===tab ? "#c23152" : "#e5e7eb", color: historyTab===tab ? "#fff" : "#374151", fontWeight:600, fontSize:14, cursor:"pointer" }}>
+                {tab === "Invoice" ? `Sales (${invoices.length})` : `Quotes (${quotations.length})`}
+              </button>
+            ))}
+          </div>
+          {/* List */}
+          <div style={{ background:"#fff", borderRadius:12, overflow:"hidden", boxShadow:"0 1px 3px rgba(0,0,0,0.06)" }}>
+            {listToShow.length === 0 ? (
+              <div style={{ padding:32, textAlign:"center", color:"#999" }}>No {historyTab === "Invoice" ? "invoices" : "quotations"} found</div>
+            ) : (
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                <thead>
+                  <tr style={{ background:"#f9fafb", borderBottom:"1px solid #e5e7eb" }}>
+                    <th style={{ padding:"10px 16px", textAlign:"left", fontWeight:600 }}>No.</th>
+                    <th style={{ padding:"10px 16px", textAlign:"left", fontWeight:600 }}>Party</th>
+                    <th style={{ padding:"10px 16px", textAlign:"left", fontWeight:600 }}>Date</th>
+                    <th style={{ padding:"10px 16px", textAlign:"right", fontWeight:600 }}>Amount</th>
+                    <th style={{ padding:"10px 16px", textAlign:"center", fontWeight:600 }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {listToShow.map(d => (
+                    <tr key={d.id} style={{ borderBottom:"1px solid #f3f4f6" }}>
+                      <td style={{ padding:"10px 16px", fontWeight:600 }}>{d.doc_number}</td>
+                      <td style={{ padding:"10px 16px" }}>{d.party_name}</td>
+                      <td style={{ padding:"10px 16px", color:"#666" }}>{d.doc_date ? new Date(d.doc_date).toLocaleDateString("en-IN") : "-"}</td>
+                      <td style={{ padding:"10px 16px", textAlign:"right", fontWeight:600 }}>₹ {fmt(d.grand_total)}</td>
+                      <td style={{ padding:"10px 16px", textAlign:"center" }}>
+                        {d.is_duplicate && <span style={{ background:"#fef2f2", color:"#dc2626", padding:"2px 8px", borderRadius:4, fontSize:11, fontWeight:600 }}>DUPLICATE</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ minHeight:"100vh", background:"#f3f4f6", fontFamily:"'Segoe UI',system-ui,sans-serif" }}>
       {/* Top Bar */}
@@ -756,7 +941,10 @@ export default function App() {
         <div style={{ display:"flex", justifyContent:"space-between", marginTop:20 }}>
           <button onClick={() => setStep(Math.max(0, step-1))} disabled={step===0} style={{...btnSecondary, opacity:step===0?0.4:1}}>← Back</button>
           {step < 6
-            ? <button onClick={() => setStep(step+1)} style={btnPrimary}>Next →</button>
+            ? <button onClick={() => {
+                if (step === 1 && docType !== "Dummy Bill" && !docNumber.trim()) { alert("Document number is required."); return; }
+                setStep(step+1);
+              }} style={btnPrimary}>Next →</button>
             : <button onClick={handleDownloadPdf} style={btnPrimary}>Download PDF</button>
           }
         </div>
