@@ -105,6 +105,7 @@ const toWords = (num) => {
 };
 
 const formatDate = (d) => {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return "";
   const dd = String(d.getDate()).padStart(2,"0");
   const mm = String(d.getMonth()+1).padStart(2,"0");
   const yyyy = d.getFullYear();
@@ -118,6 +119,32 @@ const fmt = (n) => {
 
 const composeAddr = (street, city, state, pincode) =>
   [street, city, state && pincode ? `${state} - ${pincode}` : state || pincode].filter(Boolean).join(", ");
+
+const parseStoredDate = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const parsed = new Date(`${trimmed}T00:00:00`);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+    const parsed = new Date(trimmed);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const toDateInputValue = (value) => {
+  if (!value) return "";
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const parsed = parseStoredDate(value);
+  return parsed ? parsed.toISOString().slice(0, 10) : "";
+};
+
+const sanitizePhoneNumber = (phone) => String(phone || "").replace(/\D/g, "");
 
 const MM_TO_PX = 3.7795275591;
 const PRINT_CONTENT_HEIGHT_MM = 277;
@@ -329,10 +356,14 @@ function PrintableDocument({ company, data, invoiceCSS, pageRef }) {
   );
 }
 
-function Landing({ onSelect, onHistory }) {
+function Landing({ onSelect, onHistory, authUser, onLogout }) {
   return (
     <div style={{ minHeight:"100vh", background:"linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%)", display:"flex", alignItems:"center", justifyContent:"center", padding:20, fontFamily:"'Segoe UI',system-ui,sans-serif" }}>
-      <div style={{ maxWidth:800, width:"100%", textAlign:"center" }}>
+      <div style={{ maxWidth:800, width:"100%", textAlign:"center", position:"relative" }}>
+        <div style={{ position:"absolute", top:0, right:0, display:"flex", alignItems:"center", gap:12 }}>
+          <span style={{ color:"#e0e0e0", fontSize:13 }}>{authUser?.fullName || authUser?.username}</span>
+          <button onClick={onLogout} style={{ ...btnSecondary, padding:"8px 14px", fontSize:12 }}>Logout</button>
+        </div>
         <h1 style={{ color:"#e0e0e0", fontSize:16, letterSpacing:3, textTransform:"uppercase", marginBottom:8 }}>Business Document Platform</h1>
         <h2 style={{ color:"#fff", fontSize:28, fontWeight:700, marginBottom:40 }}>Select Company & Document Type</h2>
         <div style={{ display:"flex", gap:24, flexWrap:"wrap", justifyContent:"center" }}>
@@ -388,7 +419,66 @@ const inputStyle = { width:"100%", padding:"10px 12px", border:"1px solid #d1d5d
 const btnPrimary = { padding:"12px 28px", border:"none", borderRadius:10, background:"linear-gradient(135deg,#c23152,#e94560)", color:"#fff", fontSize:15, fontWeight:600, cursor:"pointer" };
 const btnSecondary = { padding:"12px 28px", border:"1px solid #d1d5db", borderRadius:10, background:"#fff", color:"#374151", fontSize:15, fontWeight:500, cursor:"pointer" };
 
+function AuthScreen({ mode, onModeChange, credentials, onCredentialsChange, onSubmit, submitting, error }) {
+  return (
+    <div style={{ minHeight:"100vh", background:"linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%)", display:"flex", alignItems:"center", justifyContent:"center", padding:20, fontFamily:"'Segoe UI',system-ui,sans-serif" }}>
+      <div style={{ width:"100%", maxWidth:430, background:"#fff", borderRadius:20, padding:28, boxShadow:"0 20px 50px rgba(0,0,0,0.25)" }}>
+        <div style={{ textAlign:"center", marginBottom:24 }}>
+          <h1 style={{ margin:"0 0 8px", fontSize:26, color:"#1a1a2e" }}>DSGI Portal</h1>
+          <p style={{ margin:0, color:"#6b7280", fontSize:14 }}>
+            {mode === "login" ? "Sign in to access invoices, quotations, and history." : "Create an account to protect your business data."}
+          </p>
+        </div>
+        <div style={{ display:"flex", gap:8, marginBottom:20, background:"#f3f4f6", padding:4, borderRadius:12 }}>
+          {["login", "signup"].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => onModeChange(tab)}
+              style={{
+                flex:1,
+                border:"none",
+                borderRadius:10,
+                padding:"10px 12px",
+                cursor:"pointer",
+                fontWeight:600,
+                background: mode === tab ? "#fff" : "transparent",
+                color: mode === tab ? "#c23152" : "#6b7280",
+                boxShadow: mode === tab ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+              }}
+            >
+              {tab === "login" ? "Login" : "Sign Up"}
+            </button>
+          ))}
+        </div>
+        <form onSubmit={onSubmit}>
+          {mode === "signup" && (
+            <FormField label="Full Name">
+              <input style={inputStyle} value={credentials.fullName} onChange={(e) => onCredentialsChange("fullName", e.target.value)} placeholder="Your name" />
+            </FormField>
+          )}
+          <FormField label="Username" required>
+            <input style={inputStyle} value={credentials.username} onChange={(e) => onCredentialsChange("username", e.target.value)} placeholder="Choose a username" autoComplete="username" />
+          </FormField>
+          <FormField label="Password" required>
+            <input type="password" style={inputStyle} value={credentials.password} onChange={(e) => onCredentialsChange("password", e.target.value)} placeholder={mode === "signup" ? "At least 6 characters" : "Enter your password"} autoComplete={mode === "login" ? "current-password" : "new-password"} />
+          </FormField>
+          {error && <div style={{ marginBottom:16, color:"#b91c1c", fontSize:13, background:"#fef2f2", border:"1px solid #fecaca", padding:"10px 12px", borderRadius:10 }}>{error}</div>}
+          <button type="submit" disabled={submitting} style={{ ...btnPrimary, width:"100%", opacity: submitting ? 0.7 : 1 }}>
+            {submitting ? (mode === "login" ? "Signing in..." : "Creating account...") : (mode === "login" ? "Login" : "Create Account")}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  const [authUser, setAuthUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authMode, setAuthMode] = useState("login");
+  const [authCredentials, setAuthCredentials] = useState({ fullName: "", username: "", password: "" });
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [authError, setAuthError] = useState("");
   const [view, setView] = useState("landing");
   const [companyKey, setCompanyKey] = useState(null);
   const [docType, setDocType] = useState(null);
@@ -428,10 +518,83 @@ export default function App() {
 
   const company = companyKey ? COMPANIES[companyKey] : null;
 
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const res = await fetch("/api/auth/me");
+        if (!res.ok) {
+          setAuthUser(null);
+          setAuthLoading(false);
+          return;
+        }
+        const data = await res.json();
+        setAuthUser(data.user || null);
+      } catch {
+        setAuthUser(null);
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+
+    checkSession();
+  }, []);
+
+  const updateAuthCredentials = (key, value) => {
+    setAuthCredentials((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    setAuthSubmitting(true);
+    setAuthError("");
+
+    try {
+      const endpoint = authMode === "login" ? "/api/auth/login" : "/api/auth/signup";
+      const payload = authMode === "login"
+        ? { username: authCredentials.username, password: authCredentials.password }
+        : { username: authCredentials.username, password: authCredentials.password, fullName: authCredentials.fullName };
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAuthError(data.error || `Failed to ${authMode}`);
+        return;
+      }
+      setAuthUser(data.user || null);
+      setAuthCredentials({ fullName: "", username: "", password: "" });
+      setAuthError("");
+    } catch {
+      setAuthError("Unable to connect right now. Please try again.");
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // Ignore network errors during logout; clear client state either way.
+    }
+    setAuthUser(null);
+    setAuthMode("login");
+    setAuthCredentials({ fullName: "", username: "", password: "" });
+    setAuthError("");
+    setView("landing");
+    setCompanyKey(null);
+    setDocType(null);
+    setHistoryDocs([]);
+    setHistoryDownloadDoc(null);
+  }, []);
+
   // Fetch parties for autocomplete
   const fetchParties = async (ck) => {
     try {
       const res = await fetch(`/api/parties?company=${ck}`);
+      if (res.status === 401) { setAuthUser(null); return; }
       if (res.ok) { const data = await res.json(); setPartiesList(data); }
     } catch { /* offline fallback */ }
   };
@@ -441,6 +604,7 @@ export default function App() {
     if (dt === "Dummy Bill") return;
     try {
       const res = await fetch(`/api/counter?company=${ck}&doc_type=${dt}`);
+      if (res.status === 401) { setAuthUser(null); return; }
       if (res.ok) { const data = await res.json(); setDocNumber(data.docNumber); }
     } catch { /* offline fallback */ }
   };
@@ -450,6 +614,7 @@ export default function App() {
     try {
       const q = search ? `&search=${encodeURIComponent(search)}` : "";
       const res = await fetch(`/api/documents?company=${ck}${q}`);
+      if (res.status === 401) { setAuthUser(null); return; }
       if (res.ok) { const data = await res.json(); setHistoryDocs(data); }
     } catch { setHistoryDocs([]); }
   };
@@ -741,8 +906,8 @@ export default function App() {
       dateLabel: doc.doc_type === "Quotation" ? "Quotation Date" : "Invoice Date",
       dueDateLabel: doc.doc_type === "Quotation" ? "Expiry Date" : "Due Date",
       docNumber: doc.doc_number,
-      parsedDate: doc.doc_date ? new Date(`${doc.doc_date}T00:00:00`) : new Date(),
-      parsedDue: doc.due_date ? new Date(`${doc.due_date}T00:00:00`) : null,
+      parsedDate: parseStoredDate(doc.doc_date) || new Date(),
+      parsedDue: parseStoredDate(doc.due_date),
       vehicleNo: doc.vehicle_no || "",
       party: historyParty,
       billingAddr: composeAddr(historyParty.street, historyParty.city, historyParty.state, historyParty.pincode),
@@ -819,6 +984,27 @@ export default function App() {
     await downloadPdfFromNode(historyPageRef.current, getPdfFilename(data));
   }, [buildHistoryDocumentData, downloadPdfFromNode, getPdfFilename]);
 
+  const getHistoryBalance = useCallback((doc) => {
+    const grandTotalValue = parseFloat(doc.grand_total) || 0;
+    const receivedAmountValue2 = parseFloat(doc.received_amount) || 0;
+    return Math.max(grandTotalValue - receivedAmountValue2, 0);
+  }, []);
+
+  const handleWhatsappReminder = useCallback((doc) => {
+    const phone = sanitizePhoneNumber(doc.party_phone);
+    if (!phone) {
+      window.alert("No phone number is available for this party.");
+      return;
+    }
+    const balance = getHistoryBalance(doc);
+    if (balance <= 0) {
+      window.alert("No balance is pending for this invoice.");
+      return;
+    }
+    const message = `Dear ${doc.party_name}, this is a respectful reminder that a balance amount of Rs. ${fmt(balance)} is pending for Invoice No. ${doc.doc_number}. Kindly arrange payment at your convenience. Thank you.`;
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
+  }, [getHistoryBalance]);
+
   const handleHistoryEdit = useCallback((doc) => {
     const savedParty = doc.party_json || {};
     const restoredParty = {
@@ -855,8 +1041,8 @@ export default function App() {
     setParty(restoredParty);
     setPartiesList([]);
     setShowPartySuggestions(false);
-    setDocDate(doc.doc_date || new Date().toISOString().slice(0,10));
-    setDueDate(doc.due_date || "");
+    setDocDate(toDateInputValue(doc.doc_date) || new Date().toISOString().slice(0,10));
+    setDueDate(toDateInputValue(doc.due_date));
     setVehicleNo(doc.vehicle_no || "");
     setDocNumber(doc.doc_number || "");
     setPartyId(doc.party_id || null);
@@ -884,7 +1070,29 @@ export default function App() {
     }
   }, []);
 
-  if (view === "landing") return <Landing onSelect={handleSelect} onHistory={handleHistory} />;
+  if (authLoading) {
+    return (
+      <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"#f3f4f6", fontFamily:"'Segoe UI',system-ui,sans-serif", color:"#374151" }}>
+        Checking session...
+      </div>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <AuthScreen
+        mode={authMode}
+        onModeChange={(mode) => { setAuthMode(mode); setAuthError(""); }}
+        credentials={authCredentials}
+        onCredentialsChange={updateAuthCredentials}
+        onSubmit={handleAuthSubmit}
+        submitting={authSubmitting}
+        error={authError}
+      />
+    );
+  }
+
+  if (view === "landing") return <Landing onSelect={handleSelect} onHistory={handleHistory} authUser={authUser} onLogout={handleLogout} />;
 
   // Form Steps
   const renderStep = () => {
@@ -1156,6 +1364,7 @@ export default function App() {
     const invoices = historyDocs.filter(d => d.doc_type === "Invoice");
     const quotations = historyDocs.filter(d => d.doc_type === "Quotation");
     const listToShow = historyTab === "Invoice" ? invoices : quotations;
+    const amountLabel = historyTab === "Invoice" ? "Balance" : "Amount";
     return (
       <div style={{ minHeight:"100vh", background:"#f3f4f6", fontFamily:"'Segoe UI',system-ui,sans-serif" }}>
         <div style={{ background:"#1a1a2e", color:"#fff", padding:"12px 24px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
@@ -1164,7 +1373,10 @@ export default function App() {
             <img src={company.logo} alt="" style={{ width:32, height:32, borderRadius:6, background:"#fff" }} />
             <span style={{ fontWeight:600, fontSize:14 }}>{company.name}</span>
           </div>
-          <span style={{ color:"#e0e0e0", fontSize:13 }}>History</span>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <span style={{ color:"#e0e0e0", fontSize:13 }}>{authUser.fullName || authUser.username}</span>
+            <button onClick={handleLogout} style={{ ...btnSecondary, padding:"8px 14px", fontSize:12 }}>Logout</button>
+          </div>
         </div>
         <div style={{ maxWidth:900, margin:"0 auto", padding:"24px 16px" }}>
           {/* Search */}
@@ -1191,8 +1403,8 @@ export default function App() {
                     <th style={{ padding:"10px 16px", textAlign:"left", fontWeight:600 }}>Party</th>
                     <th style={{ padding:"10px 16px", textAlign:"left", fontWeight:600 }}>Phone</th>
                     <th style={{ padding:"10px 16px", textAlign:"left", fontWeight:600 }}>Date</th>
-                    <th style={{ padding:"10px 16px", textAlign:"right", fontWeight:600 }}>Amount</th>
-                    <th style={{ padding:"10px 16px", textAlign:"center", fontWeight:600 }}>Status</th>
+                    <th style={{ padding:"10px 16px", textAlign:"right", fontWeight:600 }}>{amountLabel}</th>
+                    <th style={{ padding:"10px 16px", textAlign:"center", fontWeight:600 }}>WhatsApp</th>
                     <th style={{ padding:"10px 16px", textAlign:"center", fontWeight:600 }}>Edit</th>
                     <th style={{ padding:"10px 16px", textAlign:"center", fontWeight:600 }}>Delete</th>
                     <th style={{ padding:"10px 16px", textAlign:"center", fontWeight:600 }}>Download</th>
@@ -1204,10 +1416,21 @@ export default function App() {
                       <td style={{ padding:"10px 16px", fontWeight:600 }}>{d.doc_number}</td>
                       <td style={{ padding:"10px 16px" }}>{d.party_name}</td>
                       <td style={{ padding:"10px 16px", color:"#666" }}>{d.party_phone || "-"}</td>
-                      <td style={{ padding:"10px 16px", color:"#666" }}>{d.doc_date ? new Date(d.doc_date).toLocaleDateString("en-IN") : "-"}</td>
-                      <td style={{ padding:"10px 16px", textAlign:"right", fontWeight:600 }}>₹ {fmt(d.grand_total)}</td>
+                      <td style={{ padding:"10px 16px", color:"#666" }}>{parseStoredDate(d.doc_date)?.toLocaleDateString("en-IN") || "-"}</td>
+                      <td style={{ padding:"10px 16px", textAlign:"right", fontWeight:600 }}>₹ {fmt(historyTab === "Invoice" ? getHistoryBalance(d) : d.grand_total)}</td>
                       <td style={{ padding:"10px 16px", textAlign:"center" }}>
-                        {d.is_duplicate && <span style={{ background:"#fef2f2", color:"#dc2626", padding:"2px 8px", borderRadius:4, fontSize:11, fontWeight:600 }}>DUPLICATE</span>}
+                        {d.doc_type === "Invoice"
+                          ? <button
+                              onClick={() => handleWhatsappReminder(d)}
+                              style={{ background:"#25D366", border:"none", borderRadius:999, width:36, height:36, cursor:"pointer", display:"inline-flex", alignItems:"center", justifyContent:"center" }}
+                              title="Send WhatsApp reminder"
+                            >
+                              <svg viewBox="0 0 32 32" width="18" height="18" aria-hidden="true">
+                                <path fill="#fff" d="M19.11 17.33c-.27-.14-1.57-.77-1.82-.86-.24-.09-.42-.14-.6.14-.18.27-.69.86-.85 1.04-.16.18-.31.2-.58.07-.27-.14-1.12-.41-2.14-1.3-.79-.71-1.33-1.58-1.49-1.85-.16-.27-.02-.42.12-.56.12-.12.27-.31.4-.47.13-.16.18-.27.27-.45.09-.18.05-.34-.02-.47-.07-.14-.6-1.45-.82-1.99-.22-.52-.44-.45-.6-.46h-.51c-.18 0-.47.07-.71.34-.24.27-.93.91-.93 2.22 0 1.3.95 2.56 1.08 2.74.14.18 1.86 2.84 4.51 3.98.63.27 1.13.43 1.51.55.64.2 1.22.17 1.68.1.51-.08 1.57-.64 1.79-1.26.22-.62.22-1.15.15-1.26-.07-.11-.25-.18-.52-.32Zm-3.02 10.41h-.01a13.1 13.1 0 0 1-6.68-1.83l-.48-.28-4.96 1.3 1.33-4.83-.31-.5a13.02 13.02 0 0 1-2.01-6.96c0-7.18 5.84-13.02 13.02-13.02 3.48 0 6.74 1.36 9.2 3.82a12.93 12.93 0 0 1 3.81 9.2c0 7.18-5.84 13.02-13.01 13.02Zm11.07-24.09A15.56 15.56 0 0 0 16.01 0C7.18 0 0 7.18 0 16c0 2.82.74 5.57 2.14 8l-2.28 8.31 8.51-2.23A15.9 15.9 0 0 0 16.01 32C24.83 32 32 24.82 32 16a15.5 15.5 0 0 0-4.84-11.35Z" />
+                              </svg>
+                            </button>
+                          : "-"
+                        }
                       </td>
                       <td style={{ padding:"10px 16px", textAlign:"center" }}>
                         <button onClick={() => handleHistoryEdit(d)} style={{ ...btnSecondary, padding:"8px 14px", fontSize:12 }}>Edit</button>
@@ -1243,7 +1466,11 @@ export default function App() {
           <img src={company.logo} alt="" style={{ width:32, height:32, borderRadius:6, background:"#fff" }} />
           <span style={{ fontWeight:600, fontSize:14 }}>{company.name}</span>
         </div>
-        <span style={{ background:"rgba(233,69,96,0.2)", color:"#e94560", padding:"4px 14px", borderRadius:20, fontSize:12, fontWeight:600 }}>{docType}</span>
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          <span style={{ color:"#e0e0e0", fontSize:13 }}>{authUser.fullName || authUser.username}</span>
+          <span style={{ background:"rgba(233,69,96,0.2)", color:"#e94560", padding:"4px 14px", borderRadius:20, fontSize:12, fontWeight:600 }}>{docType}</span>
+          <button onClick={handleLogout} style={{ ...btnSecondary, padding:"8px 14px", fontSize:12 }}>Logout</button>
+        </div>
       </div>
       {/* Main */}
       <div style={{ maxWidth:720, margin:"0 auto", padding:"24px 16px" }}>

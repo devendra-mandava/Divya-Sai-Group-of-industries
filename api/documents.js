@@ -1,6 +1,10 @@
 import { sql } from "@vercel/postgres";
+import { requireAuth } from "./_lib/auth.js";
 
 export default async function handler(req, res) {
+  const user = await requireAuth(req, res);
+  if (!user) return;
+
   if (req.method === "GET") {
     const { company, doc_type, search } = req.query;
     if (!company) return res.status(400).json({ error: "company required" });

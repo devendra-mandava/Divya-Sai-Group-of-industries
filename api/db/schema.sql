@@ -54,3 +54,21 @@ CREATE TABLE IF NOT EXISTS counters (
   current_value INTEGER NOT NULL DEFAULT 0,
   UNIQUE(company, doc_type, fiscal_year)
 );
+
+CREATE TABLE IF NOT EXISTS users (
+  id            SERIAL PRIMARY KEY,
+  username      VARCHAR(100) NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  full_name     VARCHAR(255),
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  id            SERIAL PRIMARY KEY,
+  user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash    TEXT NOT NULL UNIQUE,
+  expires_at    TIMESTAMPTZ NOT NULL,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
