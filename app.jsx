@@ -479,6 +479,10 @@ function AuthScreen({ mode, onModeChange, credentials, onCredentialsChange, onSu
 }
 
 export default function App() {
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.innerWidth < 768;
+  });
   const [authUser, setAuthUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authMode, setAuthMode] = useState("login");
@@ -543,6 +547,13 @@ export default function App() {
     };
 
     checkSession();
+  }, []);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   const updateAuthCredentials = (key, value) => {
@@ -1379,24 +1390,24 @@ Divya Sai Group of Industries`;
     const amountLabel = historyTab === "Invoice" ? "Balance" : "Amount";
     return (
       <div style={{ minHeight:"100vh", background:"#f3f4f6", fontFamily:"'Segoe UI',system-ui,sans-serif" }}>
-        <div style={{ background:"#1a1a2e", color:"#fff", padding:"12px 24px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+        <div style={{ background:"#1a1a2e", color:"#fff", padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:isMobile ? "flex-start" : "center", gap:12, flexWrap:"wrap" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12, minWidth:0 }}>
             <button onClick={() => setView("landing")} style={{ background:"none", border:"none", color:"#e94560", cursor:"pointer", fontSize:18, fontWeight:700 }}>←</button>
             <img src={company.logo} alt="" style={{ width:32, height:32, borderRadius:6, background:"#fff" }} />
-            <span style={{ fontWeight:600, fontSize:14 }}>{company.name}</span>
+            <span style={{ fontWeight:600, fontSize:14, lineHeight:1.3 }}>{company.name}</span>
           </div>
-          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <span style={{ color:"#e0e0e0", fontSize:13 }}>{authUser.fullName || authUser.username}</span>
+          <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", justifyContent:isMobile ? "flex-start" : "flex-end" }}>
+            <span style={{ color:"#e0e0e0", fontSize:13, wordBreak:"break-word" }}>{authUser.fullName || authUser.username}</span>
             <button onClick={handleLogout} style={{ ...btnSecondary, padding:"8px 14px", fontSize:12 }}>Logout</button>
           </div>
         </div>
-        <div style={{ maxWidth:900, margin:"0 auto", padding:"24px 16px" }}>
+        <div style={{ maxWidth:900, margin:"0 auto", padding:"20px 12px" }}>
           {/* Search */}
           <div style={{ marginBottom:16 }}>
-            <input style={{...inputStyle, maxWidth:400}} placeholder="Search by party name..." value={historySearch} onChange={e => { setHistorySearch(e.target.value); fetchHistory(companyKey, e.target.value); }} />
+            <input style={{...inputStyle, maxWidth:isMobile ? "100%" : 400}} placeholder="Search by party name..." value={historySearch} onChange={e => { setHistorySearch(e.target.value); fetchHistory(companyKey, e.target.value); }} />
           </div>
           {/* Tabs */}
-          <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+          <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
             {["Invoice","Quotation"].map(tab => (
               <button key={tab} onClick={() => setHistoryTab(tab)} style={{ padding:"8px 20px", border:"none", borderRadius:8, background: historyTab===tab ? "#c23152" : "#e5e7eb", color: historyTab===tab ? "#fff" : "#374151", fontWeight:600, fontSize:14, cursor:"pointer" }}>
                 {tab === "Invoice" ? `Sales (${invoices.length})` : `Quotes (${quotations.length})`}
@@ -1407,6 +1418,42 @@ Divya Sai Group of Industries`;
           <div style={{ background:"#fff", borderRadius:12, overflow:"hidden", boxShadow:"0 1px 3px rgba(0,0,0,0.06)" }}>
             {listToShow.length === 0 ? (
               <div style={{ padding:32, textAlign:"center", color:"#999" }}>No {historyTab === "Invoice" ? "invoices" : "quotations"} found</div>
+            ) : isMobile ? (
+              <div style={{ padding:12 }}>
+                {listToShow.map((d) => (
+                  <div key={d.id} style={{ border:"1px solid #e5e7eb", borderRadius:12, padding:14, marginBottom:12, background:"#fff" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", gap:12, alignItems:"flex-start", marginBottom:10 }}>
+                      <div>
+                        <div style={{ fontWeight:700, color:"#111827", fontSize:15 }}>{d.doc_number}</div>
+                        <div style={{ color:"#6b7280", fontSize:12, marginTop:2 }}>{parseStoredDate(d.doc_date)?.toLocaleDateString("en-IN") || "-"}</div>
+                      </div>
+                      <div style={{ textAlign:"right" }}>
+                        <div style={{ fontSize:11, color:"#6b7280" }}>{amountLabel}</div>
+                        <div style={{ fontWeight:700, color:"#111827" }}>₹ {fmt(historyTab === "Invoice" ? getHistoryBalance(d) : d.grand_total)}</div>
+                      </div>
+                    </div>
+                    <div style={{ marginBottom:6, fontWeight:600, color:"#1f2937" }}>{d.party_name}</div>
+                    <div style={{ marginBottom:12, color:"#6b7280", fontSize:13 }}>{d.party_phone || "-"}</div>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(2, minmax(0, 1fr))", gap:8 }}>
+                      {d.doc_type === "Invoice"
+                        ? <button
+                            onClick={() => handleWhatsappReminder(d)}
+                            style={{ background:"#25D366", border:"none", borderRadius:10, minHeight:40, cursor:"pointer", display:"inline-flex", alignItems:"center", justifyContent:"center" }}
+                            title="Send WhatsApp reminder"
+                          >
+                            <svg viewBox="0 0 32 32" width="18" height="18" aria-hidden="true">
+                              <path fill="#fff" d="M19.11 17.33c-.27-.14-1.57-.77-1.82-.86-.24-.09-.42-.14-.6.14-.18.27-.69.86-.85 1.04-.16.18-.31.2-.58.07-.27-.14-1.12-.41-2.14-1.3-.79-.71-1.33-1.58-1.49-1.85-.16-.27-.02-.42.12-.56.12-.12.27-.31.4-.47.13-.16.18-.27.27-.45.09-.18.05-.34-.02-.47-.07-.14-.6-1.45-.82-1.99-.22-.52-.44-.45-.6-.46h-.51c-.18 0-.47.07-.71.34-.24.27-.93.91-.93 2.22 0 1.3.95 2.56 1.08 2.74.14.18 1.86 2.84 4.51 3.98.63.27 1.13.43 1.51.55.64.2 1.22.17 1.68.1.51-.08 1.57-.64 1.79-1.26.22-.62.22-1.15.15-1.26-.07-.11-.25-.18-.52-.32Zm-3.02 10.41h-.01a13.1 13.1 0 0 1-6.68-1.83l-.48-.28-4.96 1.3 1.33-4.83-.31-.5a13.02 13.02 0 0 1-2.01-6.96c0-7.18 5.84-13.02 13.02-13.02 3.48 0 6.74 1.36 9.2 3.82a12.93 12.93 0 0 1 3.81 9.2c0 7.18-5.84 13.02-13.01 13.02Zm11.07-24.09A15.56 15.56 0 0 0 16.01 0C7.18 0 0 7.18 0 16c0 2.82.74 5.57 2.14 8l-2.28 8.31 8.51-2.23A15.9 15.9 0 0 0 16.01 32C24.83 32 32 24.82 32 16a15.5 15.5 0 0 0-4.84-11.35Z" />
+                            </svg>
+                          </button>
+                        : <div style={{ minHeight:40 }}></div>
+                      }
+                      <button onClick={() => handleHistoryEdit(d)} style={{ ...btnSecondary, padding:"10px 12px", fontSize:12 }}>Edit</button>
+                      <button onClick={() => handleHistoryDelete(d)} style={{ ...btnSecondary, padding:"10px 12px", fontSize:12, color:"#b91c1c", borderColor:"#fecaca" }}>Delete</button>
+                      <button onClick={() => handleHistoryDownload(d)} style={{ ...btnSecondary, padding:"10px 12px", fontSize:12 }}>Download PDF</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             ) : (
               <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
                 <thead>
