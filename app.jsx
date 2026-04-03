@@ -60,6 +60,29 @@ const PREDEFINED_NOTES = [
   "Civil works and sand filling are within your scope.",
 ];
 
+const DEFAULT_PARTY = {
+  name: "",
+  phone: "",
+  gst: "",
+  street: "",
+  city: "",
+  state: "Andhra Pradesh",
+  pincode: "",
+  shipStreet: "",
+  shipCity: "",
+  shipState: "Andhra Pradesh",
+  shipPincode: "",
+  sameAsBilling: true,
+};
+
+const DEFAULT_ITEM = { catalogId:"ip60", description:"Ex-Factory", qty:"", unit:"SQF", rate:"" };
+
+const DEFAULT_EXTRAS = {
+  transport:false, transportMode:"direct", transportAmt:"", transportTons:"", transportRate:"",
+  laying:false, layingMode:"sqft", layingSqft:"", layingRate:"", layingTotal:"",
+  unloading:false, unloadingMode:"sqft", unloadingSqft:"", unloadingRate:"", unloadingTotal:"",
+};
+
 const toWords = (num) => {
   if (num === 0) return "Zero Rupees";
   const ones = ["","One","Two","Three","Four","Five","Six","Seven","Eight","Nine","Ten","Eleven","Twelve","Thirteen","Fourteen","Fifteen","Sixteen","Seventeen","Eighteen","Nineteen"];
@@ -93,10 +116,218 @@ const fmt = (n) => {
   return Number(n).toLocaleString("en-IN");
 };
 
+const composeAddr = (street, city, state, pincode) =>
+  [street, city, state && pincode ? `${state} - ${pincode}` : state || pincode].filter(Boolean).join(", ");
+
 const MM_TO_PX = 3.7795275591;
 const PRINT_CONTENT_HEIGHT_MM = 277;
 const PRINT_CONTENT_HEIGHT_PX = PRINT_CONTENT_HEIGHT_MM * MM_TO_PX;
 const EMPTY_ROW_HEIGHT_PX = 24;
+
+function PrintableDocument({ company, data, invoiceCSS, pageRef }) {
+  const {
+    docType,
+    numLabel,
+    dateLabel,
+    dueDateLabel,
+    docNumber,
+    parsedDate,
+    parsedDue,
+    vehicleNo,
+    party,
+    billingAddr,
+    shipAddr,
+    calcItems,
+    gstRate,
+    totalQty,
+    totalTax,
+    grandTotal,
+    transportAmt,
+    layingAmt,
+    unloadingAmt,
+    extras,
+    cgstRate,
+    sgstRate,
+    allNotes,
+    emptyRowCount,
+    receivedAmount,
+    balanceAmount,
+  } = data;
+
+  return (
+    <div>
+      <style dangerouslySetInnerHTML={{ __html: invoiceCSS }} />
+      <div ref={pageRef} className="inv-doc inv-page" style={{ padding:20, margin:"0 auto" }}>
+        <div className="doc-type-bar">
+          {docType === "Dummy Bill" ? "TAX INVOICE" : docType.toUpperCase()}
+          {docType !== "Quotation" && <span className="original-badge">ORIGINAL</span>}
+        </div>
+        <table style={{ marginBottom:0 }}>
+          <tbody>
+            <tr>
+              <td style={{ width:"50%", verticalAlign:"top" }} rowSpan={2}>
+                <table className="no-border" style={{ border:"none" }}><tbody>
+                  <tr>
+                    <td style={{ border:"none", width:70, verticalAlign:"top", padding:"4px" }}><img src={company.logo} alt="" style={{ width:60 }} /></td>
+                    <td style={{ border:"none", padding:"4px" }}>
+                      <div className="company-name">{company.name}</div>
+                      <div style={{ fontSize:10, color:"#444", lineHeight:"1.4" }}>{company.address}</div>
+                      <table className="no-border" style={{ fontSize:10, marginTop:4, border:"none" }}><tbody>
+                        {company.gstin && <tr><td style={{ border:"none", padding:"1px 4px 1px 0", fontWeight:600, width:50 }}>GSTIN:</td><td style={{ border:"none", padding:"1px 4px" }}>{company.gstin}</td><td style={{ border:"none", padding:"1px 4px", fontWeight:600, width:55 }}>Mobile:</td><td style={{ border:"none", padding:"1px 4px" }}>{company.mobile}</td></tr>}
+                        {!company.gstin && <tr><td style={{ border:"none", padding:"1px 4px 1px 0", fontWeight:600, width:55 }}>Mobile:</td><td style={{ border:"none", padding:"1px 4px" }}>{company.mobile}</td></tr>}
+                        {company.email && <tr><td style={{ border:"none", padding:"1px 4px 1px 0", fontWeight:600, width:55 }}>Email:</td><td style={{ border:"none", padding:"1px 4px" }} colSpan={3}>{company.email}</td></tr>}
+                      </tbody></table>
+                    </td>
+                  </tr>
+                </tbody></table>
+              </td>
+              <td style={{ padding:0, verticalAlign:"top" }}>
+                <table className="header-right" style={{ marginBottom:0 }}>
+                  <tbody>
+                    <tr>
+                      <td style={{ width:"34%" }}><span className="label">{numLabel}</span><br/><span className="value">{docNumber}</span></td>
+                      <td style={{ width:"33%" }}><span className="label">{dateLabel}</span><br/><span className="value">{formatDate(parsedDate)}</span></td>
+                      {parsedDue && <td style={{ width:"33%" }}><span className="label">{dueDateLabel}</span><br/><span className="value">{formatDate(parsedDue)}</span></td>}
+                    </tr>
+                  </tbody>
+                </table>
+              </td>
+            </tr>
+            {docType === "Invoice" && vehicleNo && (
+              <tr>
+                <td style={{ padding:0, verticalAlign:"top" }}>
+                  <table className="header-right" style={{ marginBottom:0 }}>
+                    <tbody><tr><td><span className="label">Vehicle No.</span><br/><span className="value">{vehicleNo}</span></td></tr></tbody>
+                  </table>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+        <table style={{ marginBottom:0 }}>
+          <tbody>
+            <tr>
+              <td className="bill-header" style={{ width:"50%" }}>BILL TO</td>
+              <td className="bill-header">SHIP TO</td>
+            </tr>
+            <tr>
+              <td style={{ verticalAlign:"top" }}>
+                <div style={{ fontWeight:700, fontSize:12 }}>{party.name}</div>
+                <div style={{ fontSize:10, lineHeight:"1.5" }}>Address: {billingAddr}</div>
+                <div style={{ fontSize:10 }}>Place of Supply: Andhra Pradesh</div>
+                {party.phone && <div style={{ fontSize:10 }}>Mobile: <strong>{party.phone}</strong></div>}
+              </td>
+              <td style={{ verticalAlign:"top" }}>
+                <div style={{ fontWeight:700, fontSize:12 }}>{party.name}</div>
+                <div style={{ fontSize:10, lineHeight:"1.5" }}>Address: {shipAddr}</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <table>
+          <thead><tr>
+            <th style={{ width:45, textAlign:"center" }}>S.NO.</th><th>ITEMS</th><th style={{ width:55, textAlign:"center" }}>HSN</th><th style={{ width:80 }}>QTY.</th><th style={{ width:55, textAlign:"right" }}>RATE</th>{gstRate > 0 && <th style={{ width:75, textAlign:"right" }}>TAX</th>}<th style={{ width:85, textAlign:"right" }}>AMOUNT</th>
+          </tr></thead>
+          <tbody>
+            {calcItems.map((it, i) => (
+              <tr key={i}>
+                <td className="text-center">{i+1}</td>
+                <td>{it.name}{it.description ? <><br/><span style={{fontSize:10,color:"#666"}}>{it.description}</span></> : ""}</td>
+                <td className="text-center">{it.hsn}</td>
+                <td>{fmt(it.qty)} {it.unit}</td>
+                <td className="text-right">{fmt(it.rate)}</td>
+                {gstRate > 0 && <td className="amount-cell">{fmt(Math.round(it.taxable * gstRate / 100))}<br/><span style={{fontSize:9}}>({gstRate}%)</span></td>}
+                <td className="amount-cell">{fmt(it.taxable + Math.round(it.taxable * gstRate / 100))}</td>
+              </tr>
+            ))}
+            {Array.from({ length: emptyRowCount }).map((_, i) => (
+              <tr key={`empty-${i}`} className="empty-row"><td></td><td></td><td></td><td></td><td></td>{gstRate > 0 && <td></td>}<td></td></tr>
+            ))}
+            {extras.transport && transportAmt > 0 && (
+              <tr><td></td><td style={{fontStyle:"italic"}}>{extras.transportMode==="calc" ? `Transportation: ${extras.transportTons} Tons × ${extras.transportRate}/-` : "Transportation"}</td><td>-</td><td>-</td><td className="amount-cell">{fmt(transportAmt)}</td>{gstRate > 0 && <td className="amount-cell">0<br/><span style={{fontSize:9}}>(0%)</span></td>}<td className="amount-cell">{fmt(transportAmt)}</td></tr>
+            )}
+            {extras.unloading && unloadingAmt > 0 && (
+              <tr><td></td><td style={{fontStyle:"italic"}}>{extras.unloadingMode==="sqft" ? `Unloading: ${extras.unloadingSqft}sqft × ${extras.unloadingRate}/-` : "Unloading"}</td><td>-</td><td>-</td><td className="amount-cell">{fmt(unloadingAmt)}</td>{gstRate > 0 && <td className="amount-cell">0<br/><span style={{fontSize:9}}>(0%)</span></td>}<td className="amount-cell">{fmt(unloadingAmt)}</td></tr>
+            )}
+            {extras.laying && layingAmt > 0 && (
+              <tr><td></td><td style={{fontStyle:"italic"}}>{extras.layingMode==="sqft" ? `Laying: ${extras.layingSqft}sqft × ${extras.layingRate}/-` : "Laying"}</td><td>-</td><td>-</td><td className="amount-cell">{fmt(layingAmt)}</td>{gstRate > 0 && <td className="amount-cell">0<br/><span style={{fontSize:9}}>(0%)</span></td>}<td className="amount-cell">{fmt(layingAmt)}</td></tr>
+            )}
+            <tr className="total-row">
+              <td colSpan={3} className="text-right">TOTAL</td>
+              <td>{fmt(totalQty)}</td>
+              <td></td>
+              {gstRate > 0 && <td className="amount-cell">₹ {fmt(totalTax)}</td>}
+              <td className="amount-cell">₹ {fmt(grandTotal)}</td>
+            </tr>
+            {docType !== "Quotation" && (
+              <>
+                <tr><td colSpan={gstRate > 0 ? 6 : 5} className="text-right" style={{ fontWeight:600 }}>RECEIVED AMOUNT</td><td className="amount-cell">₹ {fmt(receivedAmount)}</td></tr>
+                <tr><td colSpan={gstRate > 0 ? 6 : 5} className="text-right" style={{ fontWeight:600 }}>BALANCE TO RECEIVE</td><td className="amount-cell">₹ {fmt(balanceAmount)}</td></tr>
+              </>
+            )}
+          </tbody>
+        </table>
+        {gstRate > 0 && (
+          <table style={{ marginTop:0 }}>
+            <thead><tr>
+              <th rowSpan={2}>HSN/SAC</th><th rowSpan={2}>Taxable Value</th>
+              <th colSpan={2} className="text-center">CGST</th>
+              <th colSpan={2} className="text-center">SGST</th>
+              <th rowSpan={2}>Total Tax Amount</th>
+            </tr><tr>
+              <th className="text-center">Rate</th><th className="text-right">Amount</th>
+              <th className="text-center">Rate</th><th className="text-right">Amount</th>
+            </tr></thead>
+            <tbody>
+              {calcItems.map((it, i) => {
+                const c = Math.round(it.taxable * cgstRate / 100);
+                const s = Math.round(it.taxable * sgstRate / 100);
+                return it.hsn ? (
+                  <tr key={i}><td>{it.hsn}</td><td className="amount-cell">{fmt(it.taxable)}</td><td className="text-center">{cgstRate}%</td><td className="amount-cell">{fmt(c)}</td><td className="text-center">{sgstRate}%</td><td className="amount-cell">{fmt(s)}</td><td className="amount-cell">₹ {fmt(c+s)}</td></tr>
+                ) : null;
+              })}
+            </tbody>
+          </table>
+        )}
+        <div className="amt-words">
+          <strong>Total Amount (in words)</strong><br/>{toWords(Math.round(grandTotal))}
+        </div>
+        <table style={{ marginTop:0 }}>
+          <tbody>
+            <tr>
+              <td style={{ width:"50%", verticalAlign:"top", fontSize:10 }}>
+                <div className="footer-heading">Bank Details</div>
+                <table className="no-border" style={{ fontSize:10, marginTop:2 }}><tbody>
+                  <tr><td style={{ border:"none", width:80, padding:"1px 4px" }}>Name:</td><td style={{ border:"none", padding:"1px 4px" }}>{company.bankName}</td></tr>
+                  <tr><td style={{ border:"none", padding:"1px 4px" }}>IFSC Code:</td><td style={{ border:"none", padding:"1px 4px" }}>{company.bankIfsc}</td></tr>
+                  <tr><td style={{ border:"none", padding:"1px 4px" }}>Account No:</td><td style={{ border:"none", padding:"1px 4px" }}>{company.bankAccount}</td></tr>
+                  <tr><td style={{ border:"none", padding:"1px 4px" }}>Bank:</td><td style={{ border:"none", padding:"1px 4px" }}>{company.bankBranch}</td></tr>
+                </tbody></table>
+              </td>
+              <td style={{ width:"50%", verticalAlign:"top", fontSize:10 }}>
+                <div className="footer-heading">Payment QR Code</div>
+                <div style={{ marginTop:2 }}>UPI ID:<br/><strong>{company.upi}</strong></div>
+              </td>
+            </tr>
+            <tr>
+              <td style={{ verticalAlign:"top", fontSize:10 }}>
+                {allNotes && <><div className="footer-heading">Notes</div><span style={{ whiteSpace:"pre-wrap" }}>{allNotes}</span><br/><br/></>}
+                <div className="footer-heading">Terms and Conditions</div>
+                1. Goods once sold will not be taken back or exchanged<br/>
+                {docType === "Quotation" && <>2. Full payment for materials must be made before dispatch.<br/></>}
+                {docType === "Quotation" ? "3" : "2"}. All disputes are subject to Vijayawada jurisdiction only
+              </td>
+              <td style={{ textAlign:"center", verticalAlign:"bottom", fontSize:10 }}>
+                <img src={SIGNATURE} alt="" style={{ width:80, marginBottom:4 }} /><br/>
+                Authorised Signatory For<br/>{company.name}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 function Landing({ onSelect, onHistory }) {
   return (
@@ -164,7 +395,7 @@ export default function App() {
   const [step, setStep] = useState(0);
 
   // Party
-  const [party, setParty] = useState({ name:"", phone:"", gst:"", street:"", city:"", state:"Andhra Pradesh", pincode:"", shipStreet:"", shipCity:"", shipState:"Andhra Pradesh", shipPincode:"", sameAsBilling:true });
+  const [party, setParty] = useState({ ...DEFAULT_PARTY });
   const [partiesList, setPartiesList] = useState([]);
   const [showPartySuggestions, setShowPartySuggestions] = useState(false);
   // History
@@ -177,12 +408,12 @@ export default function App() {
   const [vehicleNo, setVehicleNo] = useState("");
   const [docNumber, setDocNumber] = useState("");
   const [partyId, setPartyId] = useState(null);
+  const [receivedAmount, setReceivedAmount] = useState("");
+  const [editingDocumentId, setEditingDocumentId] = useState(null);
   // Items
-  const [items, setItems] = useState([{ catalogId:"ip60", description:"Ex-Factory", qty:"", unit:"SQF", rate:"" }]);
+  const [items, setItems] = useState([{ ...DEFAULT_ITEM }]);
   // Additional
-  const [extras, setExtras] = useState({ transport:false, transportMode:"direct", transportAmt:"", transportTons:"", transportRate:"",
-    laying:false, layingMode:"sqft", layingSqft:"", layingRate:"", layingTotal:"",
-    unloading:false, unloadingMode:"sqft", unloadingSqft:"", unloadingRate:"", unloadingTotal:"" });
+  const [extras, setExtras] = useState({ ...DEFAULT_EXTRAS });
   // Tax
   const [gstPercent, setGstPercent] = useState(18);
   const [applyGst, setApplyGst] = useState(true);
@@ -190,8 +421,10 @@ export default function App() {
   const [notes, setNotes] = useState("");
   const [selectedPredefined, setSelectedPredefined] = useState([]);
   const [emptyRowCount, setEmptyRowCount] = useState(0);
+  const [historyDownloadDoc, setHistoryDownloadDoc] = useState(null);
 
   const pageRef = useRef();
+  const historyPageRef = useRef();
 
   const company = companyKey ? COMPANIES[companyKey] : null;
 
@@ -221,14 +454,31 @@ export default function App() {
     } catch { setHistoryDocs([]); }
   };
 
-  const handleSelect = (ck, dt) => {
-    setCompanyKey(ck);
+  const resetDocumentState = (ck, dt) => {
     setDocType(dt);
     setGstPercent(COMPANIES[ck].defaultGst);
     setApplyGst(COMPANIES[ck].gstRequired);
-    setParty({ name:"", phone:"", gst:"", street:"", city:"", state:"Andhra Pradesh", pincode:"", shipStreet:"", shipCity:"", shipState:"Andhra Pradesh", shipPincode:"", sameAsBilling:true });
+    setParty({ ...DEFAULT_PARTY });
+    setPartiesList([]);
+    setShowPartySuggestions(false);
+    setHistoryDocs([]);
+    setDocDate(new Date().toISOString().slice(0,10));
+    setDueDate("");
+    setVehicleNo("");
     setDocNumber("");
     setPartyId(null);
+    setReceivedAmount("");
+    setEditingDocumentId(null);
+    setItems([{ ...DEFAULT_ITEM }]);
+    setExtras({ ...DEFAULT_EXTRAS });
+    setNotes("");
+    setSelectedPredefined([]);
+    setEmptyRowCount(0);
+  };
+
+  const handleSelect = (ck, dt) => {
+    setCompanyKey(ck);
+    resetDocumentState(ck, dt);
     setView("form");
     setStep(0);
     fetchParties(ck);
@@ -239,6 +489,7 @@ export default function App() {
     setCompanyKey(ck);
     setHistorySearch("");
     setHistoryTab("Invoice");
+    setEditingDocumentId(null);
     setView("history");
     fetchHistory(ck);
   };
@@ -286,11 +537,12 @@ export default function App() {
   const sgstAmt = Math.round(taxableValue * sgstRate / 100);
   const totalTax = cgstAmt + sgstAmt;
   const grandTotal = taxableValue + totalTax + transportAmt + layingAmt + unloadingAmt;
+  const receivedAmountValue = parseFloat(receivedAmount) || 0;
+  const balanceAmount = Math.max(grandTotal - receivedAmountValue, 0);
   const allNotes = [
     ...selectedPredefined.map(i => PREDEFINED_NOTES[i]),
     ...(notes ? [notes] : [])
   ].join("\n");
-  const composeAddr = (street, city, state, pincode) => [street, city, state && pincode ? `${state} - ${pincode}` : state || pincode].filter(Boolean).join(", ");
   const billingAddr = composeAddr(party.street, party.city, party.state, party.pincode);
   const shipAddr = party.sameAsBilling ? billingAddr : composeAddr(party.shipStreet, party.shipCity, party.shipState, party.shipPincode);
 
@@ -330,6 +582,8 @@ export default function App() {
     docNumber,
     docDate,
     dueDate,
+    receivedAmountValue,
+    balanceAmount,
   ]);
 
   const invoiceCSS = `
@@ -362,18 +616,17 @@ export default function App() {
     @page { size:A4; margin:10mm; }
   `;
 
-  const handleDownloadPdf = useCallback(async () => {
-    const content = pageRef.current;
-    if (!content) return;
-
-    const safePartyName = (party.name || "customer")
+  const getPdfFilename = useCallback((documentData) => {
+    const safePartyName = (documentData.party.name || "customer")
       .trim()
       .replace(/[^a-z0-9]+/gi, "-")
       .replace(/^-+|-+$/g, "");
-    const safeDocNum = (docNumber || "draft").replace(/[\/\\]/g, "-");
-    const docLabel2 = docType === "Dummy Bill" ? "Invoice" : docType;
-    const filename = `${safeDocNum}_${safePartyName}_${docLabel2}.pdf`;
+    const safeDocNum = (documentData.docNumber || "draft").replace(/[\/\\]/g, "-");
+    const docLabel2 = documentData.docType === "Dummy Bill" ? "Invoice" : documentData.docType;
+    return `${safeDocNum}_${safePartyName}_${docLabel2}.pdf`;
+  }, []);
 
+  const downloadPdfFromNode = useCallback(async (content, filename) => {
     const options = {
       margin: 10,
       filename,
@@ -393,35 +646,245 @@ export default function App() {
       },
     };
 
+    await html2pdf().set(options).from(content).save();
+  }, []);
+
+  const dateLabel = docType === "Quotation" ? "Quotation Date" : "Invoice Date";
+  const numLabel = docType === "Quotation" ? "Quotation No." : "Invoice No.";
+  const dueDateLabel = docType === "Quotation" ? "Expiry Date" : "Due Date";
+  const parsedDate = docDate ? new Date(docDate + "T00:00:00") : new Date();
+  const parsedDue = dueDate ? new Date(dueDate + "T00:00:00") : null;
+
+  const currentDocumentData = {
+    docType,
+    numLabel,
+    dateLabel,
+    dueDateLabel,
+    docNumber,
+    parsedDate,
+    parsedDue,
+    vehicleNo,
+    party,
+    billingAddr,
+    shipAddr,
+    calcItems,
+    gstRate,
+    cgstRate,
+    sgstRate,
+    cgstAmt,
+    sgstAmt,
+    totalTax,
+    totalQty,
+    grandTotal,
+    transportAmt,
+    layingAmt,
+    unloadingAmt,
+    extras,
+    allNotes,
+    emptyRowCount,
+    receivedAmount: receivedAmountValue,
+    balanceAmount,
+  };
+
+  const buildHistoryDocumentData = useCallback((doc) => {
+    const savedParty = doc.party_json || {};
+    const historyParty = {
+      ...DEFAULT_PARTY,
+      ...savedParty,
+      name: doc.party_name || savedParty.name || "",
+      phone: doc.party_phone || savedParty.phone || doc.linked_party_phone || "",
+      street: savedParty.street || doc.linked_party_street || "",
+      city: savedParty.city || doc.linked_party_city || "",
+      state: savedParty.state || doc.linked_party_state || "Andhra Pradesh",
+      pincode: savedParty.pincode || doc.linked_party_pincode || "",
+      shipStreet: savedParty.shipStreet || doc.linked_party_ship_street || "",
+      shipCity: savedParty.shipCity || doc.linked_party_ship_city || "",
+      shipState: savedParty.shipState || doc.linked_party_ship_state || "Andhra Pradesh",
+      shipPincode: savedParty.shipPincode || doc.linked_party_ship_pincode || "",
+      sameAsBilling: savedParty.sameAsBilling ?? true,
+    };
+    const historyItems = Array.isArray(doc.items_json) ? doc.items_json : [];
+    const historyExtras = { ...DEFAULT_EXTRAS, ...(doc.extras_json || {}) };
+    const historyTax = doc.tax_json || {};
+    const historyApplyGst = Boolean(historyTax.applyGst);
+    const historyGstRate = historyApplyGst ? (parseFloat(historyTax.gstPercent) || 0) : 0;
+    const normalizedItems = historyItems.map((it) => {
+      const cat = ITEMS_CATALOG.find((c) => c.id === it.catalogId) || {};
+      const qty = parseFloat(it.qty) || 0;
+      const rate = parseFloat(it.rate) || 0;
+      return { ...cat, ...it, qty, rate, taxable: qty * rate };
+    });
+    const historyTaxableValue = normalizedItems.reduce((sum, it) => sum + it.taxable, 0);
+    const historyTransportAmt = historyExtras.transport
+      ? historyExtras.transportMode === "direct"
+        ? parseFloat(historyExtras.transportAmt) || 0
+        : (parseFloat(historyExtras.transportTons) || 0) * (parseFloat(historyExtras.transportRate) || 0)
+      : 0;
+    const historyLayingAmt = historyExtras.laying
+      ? historyExtras.layingMode === "direct"
+        ? parseFloat(historyExtras.layingTotal) || 0
+        : (parseFloat(historyExtras.layingSqft) || 0) * (parseFloat(historyExtras.layingRate) || 0)
+      : 0;
+    const historyUnloadingAmt = historyExtras.unloading
+      ? historyExtras.unloadingMode === "direct"
+        ? parseFloat(historyExtras.unloadingTotal) || 0
+        : (parseFloat(historyExtras.unloadingSqft) || 0) * (parseFloat(historyExtras.unloadingRate) || 0)
+      : 0;
+    const historyCgstAmt = parseFloat(historyTax.cgstAmt) || Math.round(historyTaxableValue * (historyGstRate / 2) / 100);
+    const historySgstAmt = parseFloat(historyTax.sgstAmt) || Math.round(historyTaxableValue * (historyGstRate / 2) / 100);
+    const historyGrandTotal = parseFloat(doc.grand_total) || (historyTaxableValue + historyCgstAmt + historySgstAmt + historyTransportAmt + historyLayingAmt + historyUnloadingAmt);
+    const historyReceivedAmount = parseFloat(doc.received_amount) || 0;
+
+    return {
+      docType: doc.doc_type,
+      numLabel: doc.doc_type === "Quotation" ? "Quotation No." : "Invoice No.",
+      dateLabel: doc.doc_type === "Quotation" ? "Quotation Date" : "Invoice Date",
+      dueDateLabel: doc.doc_type === "Quotation" ? "Expiry Date" : "Due Date",
+      docNumber: doc.doc_number,
+      parsedDate: doc.doc_date ? new Date(`${doc.doc_date}T00:00:00`) : new Date(),
+      parsedDue: doc.due_date ? new Date(`${doc.due_date}T00:00:00`) : null,
+      vehicleNo: doc.vehicle_no || "",
+      party: historyParty,
+      billingAddr: composeAddr(historyParty.street, historyParty.city, historyParty.state, historyParty.pincode),
+      shipAddr: historyParty.sameAsBilling
+        ? composeAddr(historyParty.street, historyParty.city, historyParty.state, historyParty.pincode)
+        : composeAddr(historyParty.shipStreet, historyParty.shipCity, historyParty.shipState, historyParty.shipPincode),
+      calcItems: normalizedItems,
+      gstRate: historyGstRate,
+      cgstRate: historyGstRate / 2,
+      sgstRate: historyGstRate / 2,
+      cgstAmt: historyCgstAmt,
+      sgstAmt: historySgstAmt,
+      totalTax: historyCgstAmt + historySgstAmt,
+      totalQty: normalizedItems.reduce((sum, it) => sum + it.qty, 0),
+      grandTotal: historyGrandTotal,
+      transportAmt: historyTransportAmt,
+      layingAmt: historyLayingAmt,
+      unloadingAmt: historyUnloadingAmt,
+      extras: historyExtras,
+      allNotes: doc.notes || "",
+      emptyRowCount: 0,
+      receivedAmount: historyReceivedAmount,
+      balanceAmount: Math.max(historyGrandTotal - historyReceivedAmount, 0),
+    };
+  }, []);
+
+  const handleDownloadPdf = useCallback(async () => {
+    const content = pageRef.current;
+    if (!content) return;
+
     // Save to DB (fire-and-forget, only for Invoice/Quotation)
     if (docType !== "Dummy Bill" && companyKey && docNumber) {
+      const partySnapshot = { ...party };
       try {
-        // Save party first
         const partyRes = await fetch("/api/parties", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ company: companyKey, name: party.name, phone: party.phone, gst: party.gst, street: party.street, city: party.city, state: party.state, pincode: party.pincode, ship_street: party.shipStreet, ship_city: party.shipCity, ship_state: party.shipState, ship_pincode: party.shipPincode })
         });
         const partyData = partyRes.ok ? await partyRes.json() : {};
-        // Save document
         fetch("/api/documents", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ company: companyKey, doc_type: docType, doc_number: docNumber, party_id: partyData.id || partyId, party_name: party.name, doc_date: docDate, due_date: dueDate || null, grand_total: grandTotal, vehicle_no: vehicleNo, items_json: calcItems, extras_json: extras, tax_json: { gstPercent, applyGst, cgstAmt, sgstAmt, totalTax }, notes: allNotes })
+          method: editingDocumentId ? "PUT" : "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...(editingDocumentId ? { id: editingDocumentId } : {}),
+            company: companyKey,
+            doc_type: docType,
+            doc_number: docNumber,
+            party_id: partyData.id || partyId,
+            party_name: party.name,
+            party_phone: party.phone,
+            party_json: partySnapshot,
+            doc_date: docDate,
+            due_date: dueDate || null,
+            grand_total: grandTotal,
+            received_amount: receivedAmountValue,
+            vehicle_no: vehicleNo,
+            items_json: calcItems,
+            extras_json: extras,
+            tax_json: { gstPercent, applyGst, cgstAmt, sgstAmt, totalTax },
+            notes: allNotes,
+          })
         }).catch(() => {});
       } catch { /* offline */ }
     }
 
-    await html2pdf().set(options).from(content).save();
-  }, [docDate, docType, party, docNumber, companyKey, partyId, dueDate, grandTotal, vehicleNo, calcItems, extras, gstPercent, applyGst, cgstAmt, sgstAmt, totalTax, allNotes]);
+    await downloadPdfFromNode(content, getPdfFilename(currentDocumentData));
+    if (companyKey) fetchHistory(companyKey, historySearch);
+  }, [allNotes, applyGst, calcItems, companyKey, currentDocumentData, docDate, docNumber, docType, downloadPdfFromNode, dueDate, editingDocumentId, extras, getPdfFilename, grandTotal, gstPercent, historySearch, party, partyId, receivedAmountValue, sgstAmt, cgstAmt, totalTax, vehicleNo]);
+
+  const handleHistoryDownload = useCallback(async (doc) => {
+    const data = buildHistoryDocumentData(doc);
+    setHistoryDownloadDoc(data);
+    await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+    if (!historyPageRef.current) return;
+    await downloadPdfFromNode(historyPageRef.current, getPdfFilename(data));
+  }, [buildHistoryDocumentData, downloadPdfFromNode, getPdfFilename]);
+
+  const handleHistoryEdit = useCallback((doc) => {
+    const savedParty = doc.party_json || {};
+    const restoredParty = {
+      ...DEFAULT_PARTY,
+      ...savedParty,
+      name: doc.party_name || savedParty.name || "",
+      phone: doc.party_phone || savedParty.phone || doc.linked_party_phone || "",
+      street: savedParty.street || doc.linked_party_street || "",
+      city: savedParty.city || doc.linked_party_city || "",
+      state: savedParty.state || doc.linked_party_state || "Andhra Pradesh",
+      pincode: savedParty.pincode || doc.linked_party_pincode || "",
+      shipStreet: savedParty.shipStreet || doc.linked_party_ship_street || "",
+      shipCity: savedParty.shipCity || doc.linked_party_ship_city || "",
+      shipState: savedParty.shipState || doc.linked_party_ship_state || "Andhra Pradesh",
+      shipPincode: savedParty.shipPincode || doc.linked_party_ship_pincode || "",
+      sameAsBilling: savedParty.sameAsBilling ?? true,
+    };
+    const restoredItems = Array.isArray(doc.items_json) && doc.items_json.length > 0
+      ? doc.items_json.map((it) => ({
+          catalogId: it.catalogId || "ip60",
+          description: it.description || "",
+          qty: it.qty != null ? String(it.qty) : "",
+          unit: it.unit || "SQF",
+          rate: it.rate != null ? String(it.rate) : "",
+        }))
+      : [{ ...DEFAULT_ITEM }];
+    const restoredExtras = { ...DEFAULT_EXTRAS, ...(doc.extras_json || {}) };
+    const restoredTax = doc.tax_json || {};
+
+    setCompanyKey(doc.company);
+    setDocType(doc.doc_type);
+    setGstPercent(restoredTax.gstPercent ?? COMPANIES[doc.company].defaultGst);
+    setApplyGst(restoredTax.applyGst ?? COMPANIES[doc.company].gstRequired);
+    setParty(restoredParty);
+    setPartiesList([]);
+    setShowPartySuggestions(false);
+    setDocDate(doc.doc_date || new Date().toISOString().slice(0,10));
+    setDueDate(doc.due_date || "");
+    setVehicleNo(doc.vehicle_no || "");
+    setDocNumber(doc.doc_number || "");
+    setPartyId(doc.party_id || null);
+    setReceivedAmount(doc.received_amount != null ? String(doc.received_amount) : "");
+    setEditingDocumentId(doc.id);
+    setItems(restoredItems);
+    setExtras(restoredExtras);
+    setNotes(doc.notes || "");
+    setSelectedPredefined([]);
+    setEmptyRowCount(0);
+    setView("form");
+    setStep(0);
+    fetchParties(doc.company);
+  }, []);
+
+  const handleHistoryDelete = useCallback(async (doc) => {
+    if (!window.confirm(`Are you sure you want to delete ${doc.doc_type} ${doc.doc_number}?`)) return;
+
+    try {
+      const res = await fetch(`/api/documents?id=${doc.id}&company=${doc.company}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
+      setHistoryDocs((prev) => prev.filter((item) => item.id !== doc.id));
+    } catch {
+      window.alert("Failed to delete document. Please try again.");
+    }
+  }, []);
 
   if (view === "landing") return <Landing onSelect={handleSelect} onHistory={handleHistory} />;
-
-  const docLabel = docType === "Dummy Bill" ? "Invoice" : docType;
-  const dateLabel = docType === "Quotation" ? "Quotation Date" : "Invoice Date";
-  const numLabel = docType === "Quotation" ? "Quotation No." : "Invoice No.";
-  const dueDateLabel = docType === "Quotation" ? "Expiry Date" : "Due Date";
-
-  const parsedDate = docDate ? new Date(docDate + "T00:00:00") : new Date();
-  const parsedDue = dueDate ? new Date(dueDate + "T00:00:00") : null;
 
   // Form Steps
   const renderStep = () => {
@@ -635,8 +1098,17 @@ export default function App() {
               {transportAmt > 0 && <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}><span>Transportation:</span><span>₹ {fmt(transportAmt)}</span></div>}
               {layingAmt > 0 && <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}><span>Laying:</span><span>₹ {fmt(layingAmt)}</span></div>}
               {unloadingAmt > 0 && <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}><span>Unloading:</span><span>₹ {fmt(unloadingAmt)}</span></div>}
+              {docType !== "Quotation" && (
+                <FormField label="Received Amount (₹)">
+                  <input type="number" style={{...inputStyle, marginTop:8}} value={receivedAmount} onChange={e => setReceivedAmount(e.target.value)} placeholder="Enter received amount" />
+                </FormField>
+              )}
               <hr style={{ border:"none", borderTop:"2px solid #c23152", margin:"12px 0" }} />
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:16, fontWeight:700 }}><span>Grand Total:</span><span style={{ color:"#c23152" }}>₹ {fmt(grandTotal)}</span></div>
+              {docType !== "Quotation" && <>
+                <div style={{ display:"flex", justifyContent:"space-between", marginTop:8 }}><span>Received Amount:</span><span>₹ {fmt(receivedAmountValue)}</span></div>
+                <div style={{ display:"flex", justifyContent:"space-between", marginTop:8, fontWeight:700 }}><span>Balance To Receive:</span><span>₹ {fmt(balanceAmount)}</span></div>
+              </>}
             </div>
           </div>
         );
@@ -670,188 +1142,11 @@ export default function App() {
   const renderPreview = () => (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-        <h3 style={{ fontSize:18, fontWeight:700, color:"#1a1a2e" }}>Document Preview</h3>
+        <h3 style={{ fontSize:18, fontWeight:700, color:"#1a1a2e" }}>{editingDocumentId ? "Edit Document" : "Document Preview"}</h3>
         <button onClick={handleDownloadPdf} style={btnPrimary}>Download PDF</button>
       </div>
       <div style={{ border:"1px solid #ccc", borderRadius:8, overflow:"auto", background:"#fff" }}>
-        <div>
-          <style dangerouslySetInnerHTML={{ __html: invoiceCSS }} />
-          <div ref={pageRef} className="inv-doc inv-page" style={{ padding:20, margin:"0 auto" }}>
-          {/* Doc Type Bar */}
-          <div className="doc-type-bar">
-            {docType === "Dummy Bill" ? "TAX INVOICE" : docType.toUpperCase()}
-            {docType !== "Quotation" && <span className="original-badge">ORIGINAL</span>}
-          </div>
-          {/* Header */}
-          <table style={{ marginBottom:0 }}>
-            <tbody>
-              <tr>
-                <td style={{ width:"50%", verticalAlign:"top" }} rowSpan={2}>
-                  <table className="no-border" style={{ border:"none" }}><tbody>
-                    <tr>
-                      <td style={{ border:"none", width:70, verticalAlign:"top", padding:"4px" }}><img src={company.logo} alt="" style={{ width:60 }} /></td>
-                      <td style={{ border:"none", padding:"4px" }}>
-                        <div className="company-name">{company.name}</div>
-                        <div style={{ fontSize:10, color:"#444", lineHeight:"1.4" }}>{company.address}</div>
-                        <table className="no-border" style={{ fontSize:10, marginTop:4, border:"none" }}><tbody>
-                          {company.gstin && <tr><td style={{ border:"none", padding:"1px 4px 1px 0", fontWeight:600, width:50 }}>GSTIN:</td><td style={{ border:"none", padding:"1px 4px" }}>{company.gstin}</td><td style={{ border:"none", padding:"1px 4px", fontWeight:600, width:55 }}>Mobile:</td><td style={{ border:"none", padding:"1px 4px" }}>{company.mobile}</td></tr>}
-                          {!company.gstin && <tr><td style={{ border:"none", padding:"1px 4px 1px 0", fontWeight:600, width:55 }}>Mobile:</td><td style={{ border:"none", padding:"1px 4px" }}>{company.mobile}</td></tr>}
-                          {company.email && <tr><td style={{ border:"none", padding:"1px 4px 1px 0", fontWeight:600, width:55 }}>Email:</td><td style={{ border:"none", padding:"1px 4px" }} colSpan={3}>{company.email}</td></tr>}
-                        </tbody></table>
-                      </td>
-                    </tr>
-                  </tbody></table>
-                </td>
-                <td style={{ padding:0, verticalAlign:"top" }}>
-                  <table className="header-right" style={{ marginBottom:0 }}>
-                    <tbody>
-                      <tr>
-                        <td style={{ width:"34%" }}><span className="label">{numLabel}</span><br/><span className="value">{docNumber}</span></td>
-                        <td style={{ width:"33%" }}><span className="label">{dateLabel}</span><br/><span className="value">{formatDate(parsedDate)}</span></td>
-                        {parsedDue && <td style={{ width:"33%" }}><span className="label">{dueDateLabel}</span><br/><span className="value">{formatDate(parsedDue)}</span></td>}
-                      </tr>
-                    </tbody>
-                  </table>
-                </td>
-              </tr>
-              {docType === "Invoice" && vehicleNo && (
-                <tr>
-                  <td style={{ padding:0, verticalAlign:"top" }}>
-                    <table className="header-right" style={{ marginBottom:0 }}>
-                      <tbody><tr><td><span className="label">Vehicle No.</span><br/><span className="value">{vehicleNo}</span></td></tr></tbody>
-                    </table>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-          {/* Bill To / Ship To */}
-          <table style={{ marginBottom:0 }}>
-            <tbody>
-              <tr>
-                <td className="bill-header" style={{ width:"50%" }}>BILL TO</td>
-                <td className="bill-header">SHIP TO</td>
-              </tr>
-              <tr>
-                <td style={{ verticalAlign:"top" }}>
-                  <div style={{ fontWeight:700, fontSize:12 }}>{party.name}</div>
-                  <div style={{ fontSize:10, lineHeight:"1.5" }}>Address: {billingAddr}</div>
-                  <div style={{ fontSize:10 }}>Place of Supply: Andhra Pradesh</div>
-                  {party.phone && <div style={{ fontSize:10 }}>Mobile: <strong>{party.phone}</strong></div>}
-                </td>
-                <td style={{ verticalAlign:"top" }}>
-                  <div style={{ fontWeight:700, fontSize:12 }}>{party.name}</div>
-                  <div style={{ fontSize:10, lineHeight:"1.5" }}>Address: {shipAddr}</div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          {/* Items Table */}
-          <table>
-            <thead><tr>
-              <th style={{ width:45, textAlign:"center" }}>S.NO.</th><th>ITEMS</th><th style={{ width:55, textAlign:"center" }}>HSN</th><th style={{ width:80 }}>QTY.</th><th style={{ width:55, textAlign:"right" }}>RATE</th>{gstRate > 0 && <th style={{ width:75, textAlign:"right" }}>TAX</th>}<th style={{ width:85, textAlign:"right" }}>AMOUNT</th>
-            </tr></thead>
-            <tbody>
-              {calcItems.map((it,i) => (
-                <tr key={i}>
-                  <td className="text-center">{i+1}</td>
-                  <td>{it.name}{it.description ? <><br/><span style={{fontSize:10,color:"#666"}}>{it.description}</span></> : ""}</td>
-                  <td className="text-center">{it.hsn}</td>
-                  <td>{fmt(it.qty)} {it.unit}</td>
-                  <td className="text-right">{fmt(it.rate)}</td>
-                  {gstRate > 0 && <td className="amount-cell">{fmt(Math.round(it.taxable * gstRate / 100))}<br/><span style={{fontSize:9}}>({gstRate}%)</span></td>}
-                  <td className="amount-cell">{fmt(it.taxable + Math.round(it.taxable * gstRate / 100))}</td>
-                </tr>
-              ))}
-              {/* Empty rows to fill page */}
-              {Array.from({ length: emptyRowCount }).map((_,i) => (
-                <tr key={`empty-${i}`} className="empty-row"><td></td><td></td><td></td><td></td><td></td>{gstRate > 0 && <td></td>}<td></td></tr>
-              ))}
-              {/* Extra lines */}
-              {extras.transport && transportAmt > 0 && (
-                <tr><td></td><td style={{fontStyle:"italic"}}>{extras.transportMode==="calc" ? `Transportation: ${extras.transportTons} Tons × ${extras.transportRate}/-` : "Transportation"}</td><td>-</td><td>-</td><td className="amount-cell">{fmt(transportAmt)}</td>{gstRate > 0 && <td className="amount-cell">0<br/><span style={{fontSize:9}}>(0%)</span></td>}<td className="amount-cell">{fmt(transportAmt)}</td></tr>
-              )}
-              {extras.unloading && unloadingAmt > 0 && (
-                <tr><td></td><td style={{fontStyle:"italic"}}>{extras.unloadingMode==="sqft" ? `Unloading: ${extras.unloadingSqft}sqft × ${extras.unloadingRate}/-` : "Unloading"}</td><td>-</td><td>-</td><td className="amount-cell">{fmt(unloadingAmt)}</td>{gstRate > 0 && <td className="amount-cell">0<br/><span style={{fontSize:9}}>(0%)</span></td>}<td className="amount-cell">{fmt(unloadingAmt)}</td></tr>
-              )}
-              {extras.laying && layingAmt > 0 && (
-                <tr><td></td><td style={{fontStyle:"italic"}}>{extras.layingMode==="sqft" ? `Laying: ${extras.layingSqft}sqft × ${extras.layingRate}/-` : "Laying"}</td><td>-</td><td>-</td><td className="amount-cell">{fmt(layingAmt)}</td>{gstRate > 0 && <td className="amount-cell">0<br/><span style={{fontSize:9}}>(0%)</span></td>}<td className="amount-cell">{fmt(layingAmt)}</td></tr>
-              )}
-              {/* Total Row */}
-              <tr className="total-row">
-                <td colSpan={3} className="text-right">TOTAL</td>
-                <td>{fmt(totalQty)}</td>
-                <td></td>
-                {gstRate > 0 && <td className="amount-cell">₹ {fmt(totalTax)}</td>}
-                <td className="amount-cell">₹ {fmt(grandTotal)}</td>
-              </tr>
-              {docType !== "Quotation" && (
-                <tr><td colSpan={gstRate > 0 ? 6 : 5} className="text-right" style={{ fontWeight:600 }}>RECEIVED AMOUNT</td><td className="amount-cell">₹ 0</td></tr>
-              )}
-            </tbody>
-          </table>
-          {/* Tax Breakdown */}
-          {applyGst && gstRate > 0 && (
-            <table style={{ marginTop:0 }}>
-              <thead><tr>
-                <th rowSpan={2}>HSN/SAC</th><th rowSpan={2}>Taxable Value</th>
-                <th colSpan={2} className="text-center">CGST</th>
-                <th colSpan={2} className="text-center">SGST</th>
-                <th rowSpan={2}>Total Tax Amount</th>
-              </tr><tr>
-                <th className="text-center">Rate</th><th className="text-right">Amount</th>
-                <th className="text-center">Rate</th><th className="text-right">Amount</th>
-              </tr></thead>
-              <tbody>
-                {calcItems.map((it,i) => {
-                  const c = Math.round(it.taxable * cgstRate / 100);
-                  const s = Math.round(it.taxable * sgstRate / 100);
-                  return it.hsn ? (
-                    <tr key={i}><td>{it.hsn}</td><td className="amount-cell">{fmt(it.taxable)}</td><td className="text-center">{cgstRate}%</td><td className="amount-cell">{fmt(c)}</td><td className="text-center">{sgstRate}%</td><td className="amount-cell">{fmt(s)}</td><td className="amount-cell">₹ {fmt(c+s)}</td></tr>
-                  ) : null;
-                })}
-              </tbody>
-            </table>
-          )}
-          {/* Amount in words */}
-          <div className="amt-words">
-            <strong>Total Amount (in words)</strong><br/>{toWords(Math.round(grandTotal))}
-          </div>
-          {/* Footer: Bank, QR, Terms, Signature */}
-          <table style={{ marginTop:0 }}>
-            <tbody>
-              <tr>
-                <td style={{ width:"50%", verticalAlign:"top", fontSize:10 }}>
-                  <div className="footer-heading">Bank Details</div>
-                  <table className="no-border" style={{ fontSize:10, marginTop:2 }}><tbody>
-                    <tr><td style={{ border:"none", width:80, padding:"1px 4px" }}>Name:</td><td style={{ border:"none", padding:"1px 4px" }}>{company.bankName}</td></tr>
-                    <tr><td style={{ border:"none", padding:"1px 4px" }}>IFSC Code:</td><td style={{ border:"none", padding:"1px 4px" }}>{company.bankIfsc}</td></tr>
-                    <tr><td style={{ border:"none", padding:"1px 4px" }}>Account No:</td><td style={{ border:"none", padding:"1px 4px" }}>{company.bankAccount}</td></tr>
-                    <tr><td style={{ border:"none", padding:"1px 4px" }}>Bank:</td><td style={{ border:"none", padding:"1px 4px" }}>{company.bankBranch}</td></tr>
-                  </tbody></table>
-                </td>
-                <td style={{ width:"50%", verticalAlign:"top", fontSize:10 }}>
-                  <div className="footer-heading">Payment QR Code</div>
-                  <div style={{ marginTop:2 }}>UPI ID:<br/><strong>{company.upi}</strong></div>
-                </td>
-              </tr>
-              <tr>
-                <td style={{ verticalAlign:"top", fontSize:10 }}>
-                  {allNotes && <><div className="footer-heading">Notes</div><span style={{ whiteSpace:"pre-wrap" }}>{allNotes}</span><br/><br/></>}
-                  <div className="footer-heading">Terms and Conditions</div>
-                  1. Goods once sold will not be taken back or exchanged<br/>
-                  {docType === "Quotation" && <>2. Full payment for materials must be made before dispatch.<br/></>}
-                  {docType === "Quotation" ? "3" : "2"}. All disputes are subject to Vijayawada jurisdiction only
-                </td>
-                <td style={{ textAlign:"center", verticalAlign:"bottom", fontSize:10 }}>
-                  <img src={SIGNATURE} alt="" style={{ width:80, marginBottom:4 }} /><br/>
-                  Authorised Signatory For<br/>{company.name}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          </div>
-        </div>
+        <PrintableDocument company={company} data={currentDocumentData} invoiceCSS={invoiceCSS} pageRef={pageRef} />
       </div>
     </div>
   );
@@ -894,9 +1189,13 @@ export default function App() {
                   <tr style={{ background:"#f9fafb", borderBottom:"1px solid #e5e7eb" }}>
                     <th style={{ padding:"10px 16px", textAlign:"left", fontWeight:600 }}>No.</th>
                     <th style={{ padding:"10px 16px", textAlign:"left", fontWeight:600 }}>Party</th>
+                    <th style={{ padding:"10px 16px", textAlign:"left", fontWeight:600 }}>Phone</th>
                     <th style={{ padding:"10px 16px", textAlign:"left", fontWeight:600 }}>Date</th>
                     <th style={{ padding:"10px 16px", textAlign:"right", fontWeight:600 }}>Amount</th>
                     <th style={{ padding:"10px 16px", textAlign:"center", fontWeight:600 }}>Status</th>
+                    <th style={{ padding:"10px 16px", textAlign:"center", fontWeight:600 }}>Edit</th>
+                    <th style={{ padding:"10px 16px", textAlign:"center", fontWeight:600 }}>Delete</th>
+                    <th style={{ padding:"10px 16px", textAlign:"center", fontWeight:600 }}>Download</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -904,10 +1203,20 @@ export default function App() {
                     <tr key={d.id} style={{ borderBottom:"1px solid #f3f4f6" }}>
                       <td style={{ padding:"10px 16px", fontWeight:600 }}>{d.doc_number}</td>
                       <td style={{ padding:"10px 16px" }}>{d.party_name}</td>
+                      <td style={{ padding:"10px 16px", color:"#666" }}>{d.party_phone || "-"}</td>
                       <td style={{ padding:"10px 16px", color:"#666" }}>{d.doc_date ? new Date(d.doc_date).toLocaleDateString("en-IN") : "-"}</td>
                       <td style={{ padding:"10px 16px", textAlign:"right", fontWeight:600 }}>₹ {fmt(d.grand_total)}</td>
                       <td style={{ padding:"10px 16px", textAlign:"center" }}>
                         {d.is_duplicate && <span style={{ background:"#fef2f2", color:"#dc2626", padding:"2px 8px", borderRadius:4, fontSize:11, fontWeight:600 }}>DUPLICATE</span>}
+                      </td>
+                      <td style={{ padding:"10px 16px", textAlign:"center" }}>
+                        <button onClick={() => handleHistoryEdit(d)} style={{ ...btnSecondary, padding:"8px 14px", fontSize:12 }}>Edit</button>
+                      </td>
+                      <td style={{ padding:"10px 16px", textAlign:"center" }}>
+                        <button onClick={() => handleHistoryDelete(d)} style={{ ...btnSecondary, padding:"8px 14px", fontSize:12, color:"#b91c1c", borderColor:"#fecaca" }}>Delete</button>
+                      </td>
+                      <td style={{ padding:"10px 16px", textAlign:"center" }}>
+                        <button onClick={() => handleHistoryDownload(d)} style={{ ...btnSecondary, padding:"8px 14px", fontSize:12 }}>Download PDF</button>
                       </td>
                     </tr>
                   ))}
@@ -916,6 +1225,11 @@ export default function App() {
             )}
           </div>
         </div>
+        {historyDownloadDoc && (
+          <div style={{ position:"fixed", left:-10000, top:0, width:"210mm", background:"#fff", pointerEvents:"none" }}>
+            <PrintableDocument company={company} data={historyDownloadDoc} invoiceCSS={invoiceCSS} pageRef={historyPageRef} />
+          </div>
+        )}
       </div>
     );
   }

@@ -25,9 +25,12 @@ CREATE TABLE IF NOT EXISTS documents (
   doc_number    VARCHAR(50) NOT NULL,
   party_id      INTEGER REFERENCES parties(id),
   party_name    VARCHAR(255) NOT NULL,
+  party_phone   VARCHAR(20),
+  party_json    JSONB,
   doc_date      DATE NOT NULL,
   due_date      DATE,
   grand_total   NUMERIC(12,2),
+  received_amount NUMERIC(12,2) DEFAULT 0,
   vehicle_no    VARCHAR(50),
   items_json    JSONB,
   extras_json   JSONB,
@@ -38,6 +41,10 @@ CREATE TABLE IF NOT EXISTS documents (
 CREATE INDEX IF NOT EXISTS idx_documents_company_type ON documents(company, doc_type);
 CREATE INDEX IF NOT EXISTS idx_documents_party_name ON documents(party_name);
 CREATE INDEX IF NOT EXISTS idx_documents_doc_number ON documents(company, doc_type, doc_number);
+
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS party_phone VARCHAR(20);
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS party_json JSONB;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS received_amount NUMERIC(12,2) DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS counters (
   id            SERIAL PRIMARY KEY,
