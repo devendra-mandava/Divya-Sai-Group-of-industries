@@ -1007,7 +1007,13 @@ export default function App() {
       window.alert("No balance is pending for this invoice.");
       return;
     }
-    const message = `Dear ${doc.party_name}, this is a respectful reminder that a balance amount of Rs. ${fmt(balance)} is pending for Invoice No. ${doc.doc_number}. Kindly arrange payment at your convenience. Thank you.`;
+    const message = `Hi sir/ma'am,
+Your payment of ₹ ${fmt(balance)} against invoice number: ${doc.doc_number} is pending.
+
+Please clear the payment as soon as possible.
+
+Thank you,
+Divya Sai Group of Industries`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
   }, [getHistoryBalance]);
 
