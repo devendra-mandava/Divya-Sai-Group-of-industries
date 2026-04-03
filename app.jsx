@@ -144,7 +144,13 @@ const toDateInputValue = (value) => {
   return parsed ? parsed.toISOString().slice(0, 10) : "";
 };
 
-const sanitizePhoneNumber = (phone) => String(phone || "").replace(/\D/g, "");
+const sanitizePhoneNumber = (phone) => {
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("91") && digits.length === 12) return digits;
+  if (digits.length === 10) return `91${digits}`;
+  return digits;
+};
 
 const MM_TO_PX = 3.7795275591;
 const PRINT_CONTENT_HEIGHT_MM = 277;
