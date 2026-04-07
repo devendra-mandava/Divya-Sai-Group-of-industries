@@ -156,6 +156,14 @@ const MM_TO_PX = 3.7795275591;
 const PRINT_CONTENT_HEIGHT_MM = 277;
 const PRINT_CONTENT_HEIGHT_PX = PRINT_CONTENT_HEIGHT_MM * MM_TO_PX;
 const EMPTY_ROW_HEIGHT_PX = 24;
+const BASE_VISIBLE_ITEM_ROWS = 6;
+const MAX_ADAPTIVE_EMPTY_ROWS = 5;
+
+const getAdaptiveEmptyRowCount = (itemCount, maxRowsThatFit = Number.POSITIVE_INFINITY) => {
+  const safeItemCount = Math.max(Number(itemCount) || 0, 0);
+  const desiredRows = Math.max(0, Math.min(MAX_ADAPTIVE_EMPTY_ROWS, BASE_VISIBLE_ITEM_ROWS - safeItemCount));
+  return Math.min(desiredRows, Math.max(0, Math.floor(maxRowsThatFit)));
+};
 
 function PrintableDocument({ company, data, invoiceCSS, pageRef }) {
   const {
@@ -735,11 +743,8 @@ export default function App() {
     const frame = window.requestAnimationFrame(() => {
       const baseHeight = page.scrollHeight - emptyRowCount * EMPTY_ROW_HEIGHT_PX;
       const remainingSpace = PRINT_CONTENT_HEIGHT_PX - baseHeight;
-      let nextCount = remainingSpace > 0 ? Math.floor(remainingSpace / EMPTY_ROW_HEIGHT_PX) : 0;
-
-      while (nextCount > 0 && baseHeight + nextCount * EMPTY_ROW_HEIGHT_PX > PRINT_CONTENT_HEIGHT_PX) {
-        nextCount -= 1;
-      }
+      const maxRowsThatFit = remainingSpace > 0 ? Math.floor(remainingSpace / EMPTY_ROW_HEIGHT_PX) : 0;
+      const nextCount = getAdaptiveEmptyRowCount(calcItems.length, maxRowsThatFit);
 
       if (nextCount !== emptyRowCount) {
         setEmptyRowCount(nextCount);
@@ -770,15 +775,17 @@ export default function App() {
 
   const invoiceCSS = `
     .inv-doc { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; color: #1a1a1a; }
-    .inv-page { width: 190mm; margin: 0 auto; background: #fff; }
-    .inv-doc table { width:100%; border-collapse:collapse; table-layout:auto; }
-    .inv-doc td, .inv-doc th { border:1px solid #999; padding:4px 6px; text-align:left; vertical-align:top; word-wrap:break-word; overflow-wrap:break-word; }
+    .inv-page { width: 180mm; max-width: 180mm; margin: 0 auto; background: #fff; overflow: hidden; }
+    .inv-doc table { width:100%; border-collapse:collapse; table-layout:fixed; }
+    .inv-doc td, .inv-doc th { border:1px solid #999; padding:4px 6px; text-align:left; vertical-align:top; word-wrap:break-word; overflow-wrap:break-word; overflow:hidden; }
     .inv-doc th { background:#f8f0f2; font-weight:600; color:#5a1a2a; }
-    .inv-doc .no-border td, .inv-doc .no-border th { border:none; padding:2px 4px; }
+    .inv-doc .no-border { table-layout:auto; }
+    .inv-doc .no-border td, .inv-doc .no-border th { border:none; padding:2px 4px; overflow:visible; }
     .inv-doc .text-right { text-align:right; }
     .inv-doc .text-center { text-align:center; }
     .inv-doc .bold { font-weight:700; }
-    .inv-doc .amount-cell { text-align:right; white-space:nowrap; }
+    .inv-doc .amount-cell { text-align:right; }
+    .inv-doc .header-right { table-layout:auto; }
     .inv-doc .header-right td { border:1px solid #999; padding:4px 8px; }
     .inv-doc .header-right .label { font-weight:600; font-size:10px; color:#5a1a2a; }
     .inv-doc .header-right .value { font-size:11px; }
@@ -789,7 +796,7 @@ export default function App() {
     .inv-doc .company-name { font-weight:700; font-size:13px; color:#7B1A2C; margin-bottom:2px; word-wrap:break-word; }
     .inv-doc .section-label { font-weight:700; font-size:10px; color:#7B1A2C; margin-bottom:4px; }
     .inv-doc .bill-header { background:#7B1A2C; color:#fff; font-weight:700; font-size:10px; padding:3px 8px; }
-    .inv-doc .amt-words { border:1px solid #999; padding:8px; background:#fdf8f9; }
+    .inv-doc .amt-words { border:1px solid #999; padding:8px; background:#fdf8f9; word-wrap:break-word; overflow-wrap:break-word; font-size:10px; }
     .inv-doc .footer-heading { font-weight:700; color:#7B1A2C; font-size:11px; margin-bottom:4px; }
     @media print {
       body { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
@@ -945,7 +952,7 @@ export default function App() {
       unloadingAmt: historyUnloadingAmt,
       extras: historyExtras,
       allNotes: doc.notes || "",
-      emptyRowCount: 0,
+      emptyRowCount: getAdaptiveEmptyRowCount(normalizedItems.length),
       receivedAmount: historyReceivedAmount,
       balanceAmount: Math.max(historyGrandTotal - historyReceivedAmount, 0),
     };
