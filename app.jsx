@@ -532,7 +532,7 @@ export default function App() {
   const [historyDownloadDoc, setHistoryDownloadDoc] = useState(null);
 
   const pageRef = useRef();
-  const historyPageRef = useRef();
+  const downloadPageRef = useRef();
 
   const company = companyKey ? COMPANIES[companyKey] : null;
 
@@ -774,10 +774,10 @@ export default function App() {
   ]);
 
   const invoiceCSS = `
-    .inv-doc { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; color: #1a1a1a; }
+    .inv-doc { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; line-height: 1.35; color: #1a1a1a; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
     .inv-page { width: 180mm; max-width: 180mm; margin: 0 auto; background: #fff; overflow: hidden; }
     .inv-doc table { width:100%; border-collapse:collapse; table-layout:fixed; }
-    .inv-doc td, .inv-doc th { border:1px solid #999; padding:4px 6px; text-align:left; vertical-align:top; word-wrap:break-word; overflow-wrap:break-word; overflow:hidden; }
+    .inv-doc td, .inv-doc th { border:1px solid #999; padding:4px 6px; text-align:left; vertical-align:top; word-wrap:break-word; overflow-wrap:break-word; overflow:hidden; line-height:1.35; }
     .inv-doc th { background:#f8f0f2; font-weight:600; color:#5a1a2a; }
     .inv-doc .no-border { table-layout:auto; }
     .inv-doc .no-border td, .inv-doc .no-border th { border:none; padding:2px 4px; overflow:visible; }
@@ -875,6 +875,13 @@ export default function App() {
     balanceAmount,
   };
 
+  const renderAndDownloadPdf = useCallback(async (documentData) => {
+    setHistoryDownloadDoc(documentData);
+    await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+    if (!downloadPageRef.current) return;
+    await downloadPdfFromNode(downloadPageRef.current, getPdfFilename(documentData));
+  }, [downloadPdfFromNode, getPdfFilename]);
+
   const buildHistoryDocumentData = useCallback((doc) => {
     const savedParty = doc.party_json || {};
     const historyParty = {
@@ -959,9 +966,6 @@ export default function App() {
   }, []);
 
   const handleDownloadPdf = useCallback(async () => {
-    const content = pageRef.current;
-    if (!content) return;
-
     // Save to DB (fire-and-forget, only for Invoice/Quotation)
     if (docType !== "Dummy Bill" && companyKey && docNumber) {
       const partySnapshot = { ...party };
@@ -996,17 +1000,14 @@ export default function App() {
       } catch { /* offline */ }
     }
 
-    await downloadPdfFromNode(content, getPdfFilename(currentDocumentData));
+    await renderAndDownloadPdf(currentDocumentData);
     if (companyKey) fetchHistory(companyKey, historySearch);
-  }, [allNotes, applyGst, calcItems, companyKey, currentDocumentData, docDate, docNumber, docType, downloadPdfFromNode, dueDate, editingDocumentId, extras, getPdfFilename, grandTotal, gstPercent, historySearch, party, partyId, receivedAmountValue, sgstAmt, cgstAmt, totalTax, vehicleNo]);
+  }, [allNotes, applyGst, calcItems, companyKey, currentDocumentData, docDate, docNumber, docType, dueDate, editingDocumentId, extras, grandTotal, gstPercent, historySearch, party, partyId, receivedAmountValue, renderAndDownloadPdf, sgstAmt, cgstAmt, totalTax, vehicleNo]);
 
   const handleHistoryDownload = useCallback(async (doc) => {
     const data = buildHistoryDocumentData(doc);
-    setHistoryDownloadDoc(data);
-    await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
-    if (!historyPageRef.current) return;
-    await downloadPdfFromNode(historyPageRef.current, getPdfFilename(data));
-  }, [buildHistoryDocumentData, downloadPdfFromNode, getPdfFilename]);
+    await renderAndDownloadPdf(data);
+  }, [buildHistoryDocumentData, renderAndDownloadPdf]);
 
   const getHistoryBalance = useCallback((doc) => {
     const grandTotalValue = parseFloat(doc.grand_total) || 0;
@@ -1516,7 +1517,7 @@ Divya Sai Group of Industries`;
         </div>
         {historyDownloadDoc && (
           <div style={{ position:"fixed", left:-10000, top:0, width:"210mm", background:"#fff", pointerEvents:"none" }}>
-            <PrintableDocument company={company} data={historyDownloadDoc} invoiceCSS={invoiceCSS} pageRef={historyPageRef} />
+            <PrintableDocument company={company} data={historyDownloadDoc} invoiceCSS={invoiceCSS} pageRef={downloadPageRef} />
           </div>
         )}
       </div>
