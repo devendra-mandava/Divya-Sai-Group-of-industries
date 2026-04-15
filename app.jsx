@@ -1,4 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
 import html2pdf from "html2pdf.js";
 
 const LOGO_GROUP = "/DSGILogo.jpg";
@@ -529,10 +531,7 @@ export default function App() {
   const [notes, setNotes] = useState("");
   const [selectedPredefined, setSelectedPredefined] = useState([]);
   const [emptyRowCount, setEmptyRowCount] = useState(0);
-  const [historyDownloadDoc, setHistoryDownloadDoc] = useState(null);
-
   const pageRef = useRef();
-  const downloadPageRef = useRef();
 
   const company = companyKey ? COMPANIES[companyKey] : null;
 
@@ -612,7 +611,6 @@ export default function App() {
     setCompanyKey(null);
     setDocType(null);
     setHistoryDocs([]);
-    setHistoryDownloadDoc(null);
   }, []);
 
   // Fetch parties for autocomplete
@@ -875,12 +873,62 @@ export default function App() {
     balanceAmount,
   };
 
-  const renderAndDownloadPdf = useCallback(async (documentData) => {
-    setHistoryDownloadDoc(documentData);
+  const renderTemporaryPrintableDocument = useCallback(async (documentData) => {
+    const host = document.createElement("div");
+    host.style.position = "fixed";
+    host.style.left = "-10000px";
+    host.style.top = "0";
+    host.style.width = "210mm";
+    host.style.background = "#fff";
+    host.style.pointerEvents = "none";
+    document.body.appendChild(host);
+
+    const root = createRoot(host);
+    const tempPageRef = { current: null };
+
+    flushSync(() => {
+      root.render(
+        <PrintableDocument
+          company={company}
+          data={documentData}
+          invoiceCSS={invoiceCSS}
+          pageRef={tempPageRef}
+        />
+      );
+    });
+
     await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
-    if (!downloadPageRef.current) return;
-    await downloadPdfFromNode(downloadPageRef.current, getPdfFilename(documentData));
-  }, [downloadPdfFromNode, getPdfFilename]);
+
+    return {
+      node: tempPageRef.current,
+      cleanup: () => {
+        root.unmount();
+        host.remove();
+      },
+    };
+  }, [company, invoiceCSS]);
+
+  const renderAndDownloadPdf = useCallback(async (documentData, sourceNode = null) => {
+    let printableNode = sourceNode;
+    let cleanup = null;
+
+    if (!printableNode) {
+      const renderedDocument = await renderTemporaryPrintableDocument(documentData);
+      printableNode = renderedDocument.node;
+      cleanup = renderedDocument.cleanup;
+    }
+
+    if (!printableNode) {
+      cleanup?.();
+      throw new Error("Printable document could not be prepared");
+    }
+
+    try {
+      await downloadPdfFromNode(printableNode, getPdfFilename(documentData));
+    } finally {
+      cleanup?.();
+    }
+  }, [downloadPdfFromNode, getPdfFilename, renderTemporaryPrintableDocument]);
 
   const buildHistoryDocumentData = useCallback((doc) => {
     const savedParty = doc.party_json || {};
@@ -965,48 +1013,80 @@ export default function App() {
     };
   }, []);
 
-  const handleDownloadPdf = useCallback(async () => {
-    // Save to DB (fire-and-forget, only for Invoice/Quotation)
-    if (docType !== "Dummy Bill" && companyKey && docNumber) {
-      const partySnapshot = { ...party };
-      try {
-        const partyRes = await fetch("/api/parties", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ company: companyKey, name: party.name, phone: party.phone, gst: party.gst, street: party.street, city: party.city, state: party.state, pincode: party.pincode, ship_street: party.shipStreet, ship_city: party.shipCity, ship_state: party.shipState, ship_pincode: party.shipPincode })
-        });
-        const partyData = partyRes.ok ? await partyRes.json() : {};
-        fetch("/api/documents", {
-          method: editingDocumentId ? "PUT" : "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...(editingDocumentId ? { id: editingDocumentId } : {}),
-            company: companyKey,
-            doc_type: docType,
-            doc_number: docNumber,
-            party_id: partyData.id || partyId,
-            party_name: party.name,
-            party_phone: party.phone,
-            party_json: partySnapshot,
-            doc_date: docDate,
-            due_date: dueDate || null,
-            grand_total: grandTotal,
-            received_amount: receivedAmountValue,
-            vehicle_no: vehicleNo,
-            items_json: calcItems,
-            extras_json: extras,
-            tax_json: { gstPercent, applyGst, cgstAmt, sgstAmt, totalTax },
-            notes: allNotes,
-          })
-        }).catch(() => {});
-      } catch { /* offline */ }
-    }
+  const persistCurrentDocument = useCallback(async () => {
+    if (docType === "Dummy Bill" || !companyKey || !docNumber) return;
 
-    await renderAndDownloadPdf(currentDocumentData);
-    if (companyKey) fetchHistory(companyKey, historySearch);
-  }, [allNotes, applyGst, calcItems, companyKey, currentDocumentData, docDate, docNumber, docType, dueDate, editingDocumentId, extras, grandTotal, gstPercent, historySearch, party, partyId, receivedAmountValue, renderAndDownloadPdf, sgstAmt, cgstAmt, totalTax, vehicleNo]);
+    const partySnapshot = { ...party };
+
+    try {
+      const partyRes = await fetch("/api/parties", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          company: companyKey,
+          name: party.name,
+          phone: party.phone,
+          gst: party.gst,
+          street: party.street,
+          city: party.city,
+          state: party.state,
+          pincode: party.pincode,
+          ship_street: party.shipStreet,
+          ship_city: party.shipCity,
+          ship_state: party.shipState,
+          ship_pincode: party.shipPincode,
+        }),
+      });
+      const partyData = partyRes.ok ? await partyRes.json() : {};
+
+      await fetch("/api/documents", {
+        method: editingDocumentId ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(editingDocumentId ? { id: editingDocumentId } : {}),
+          company: companyKey,
+          doc_type: docType,
+          doc_number: docNumber,
+          party_id: partyData.id || partyId,
+          party_name: party.name,
+          party_phone: party.phone,
+          party_json: partySnapshot,
+          doc_date: docDate,
+          due_date: dueDate || null,
+          grand_total: grandTotal,
+          received_amount: receivedAmountValue,
+          vehicle_no: vehicleNo,
+          items_json: calcItems,
+          extras_json: extras,
+          tax_json: { gstPercent, applyGst, cgstAmt, sgstAmt, totalTax },
+          notes: allNotes,
+        }),
+      });
+    } catch {
+      // Saving should not block PDF export.
+    }
+  }, [allNotes, applyGst, calcItems, cgstAmt, companyKey, docDate, docNumber, docType, dueDate, editingDocumentId, extras, grandTotal, gstPercent, party, partyId, receivedAmountValue, sgstAmt, totalTax, vehicleNo]);
+
+  const handleDownloadPdf = useCallback(async () => {
+    try {
+      const savePromise = persistCurrentDocument();
+      await renderAndDownloadPdf(currentDocumentData, pageRef.current);
+      await savePromise;
+      if (companyKey) fetchHistory(companyKey, historySearch);
+    } catch (error) {
+      console.error("PDF download failed:", error);
+      window.alert("Failed to download PDF. Please try again.");
+    }
+  }, [companyKey, currentDocumentData, historySearch, persistCurrentDocument, renderAndDownloadPdf]);
 
   const handleHistoryDownload = useCallback(async (doc) => {
-    const data = buildHistoryDocumentData(doc);
-    await renderAndDownloadPdf(data);
+    try {
+      const data = buildHistoryDocumentData(doc);
+      await renderAndDownloadPdf(data);
+    } catch (error) {
+      console.error("History PDF download failed:", error);
+      window.alert("Failed to download PDF. Please try again.");
+    }
   }, [buildHistoryDocumentData, renderAndDownloadPdf]);
 
   const getHistoryBalance = useCallback((doc) => {
@@ -1515,11 +1595,6 @@ Divya Sai Group of Industries`;
             )}
           </div>
         </div>
-        {historyDownloadDoc && (
-          <div style={{ position:"fixed", left:-10000, top:0, width:"210mm", background:"#fff", pointerEvents:"none" }}>
-            <PrintableDocument company={company} data={historyDownloadDoc} invoiceCSS={invoiceCSS} pageRef={downloadPageRef} />
-          </div>
-        )}
       </div>
     );
   }
